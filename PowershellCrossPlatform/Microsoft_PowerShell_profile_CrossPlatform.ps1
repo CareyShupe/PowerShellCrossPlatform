@@ -27,7 +27,7 @@ using namespace System.Diagnostics.CodeAnalysis
 # Fallback for older builds
 if (-not (Get-Variable -Name IsWindows -Scope Script -ErrorAction SilentlyContinue))
 {
-    $Script:ProfileIsWindows = $PSVersionTable.Platform -eq 'Win32NT'
+    $Script:ProfileIsWindows = $PSVersionTable.OS -like '*Windows*'
     $Script:ProfileIsMacOS = $PSVersionTable.OS -like '*Darwin*'
     $Script:ProfileIsLinux = $PSVersionTable.OS -like '*Linux*'
 }
