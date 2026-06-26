@@ -46,14 +46,34 @@ Set-StrictMode -Version Latest
 $GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
 
+## --- Admin Detection ---
+if ($IsWindows)
+{
+    $IsAdmin = [System.Security.Principal.WindowsPrincipal]::new(
+        [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    ).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+elseif ($IsLinux -or $IsMacOS)
+{
+    $IsAdmin = (id -u) -eq 0
+}
+else
+{
+    $IsAdmin = $false
+}
+
 # --- Window Title (Windows only) ---
 if ($IsWindows)
 {
     try
     {
-        if (-not [System.Security.Principal.WindowsPrincipal]::new([System.Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator))
+        $Host.UI.RawUI.WindowTitle = if ($IsAdmin)
         {
-            $Host.UI.RawUI.WindowTitle = "PowerShell (User)"
+            "PowerShell (Admin)"
+        }
+        else
+        {
+            "PowerShell (User)"
         }
     }
     catch
