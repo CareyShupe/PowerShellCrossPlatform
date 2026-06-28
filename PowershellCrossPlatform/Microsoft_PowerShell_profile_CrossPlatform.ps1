@@ -43,7 +43,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
 
-$GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
+# $GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
 
 ## --- Admin Detection ---
@@ -117,86 +117,101 @@ function Update-Modules
 
 function Update-PowerShell
 {
-    param ([string]$ApiUrl = $GLOBAL_GitHubApiUrl)
+    param (
+        [string]$ApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest',
+        [switch]$Force,
+        [switch]$Verbose
+    )
 
-    if (-not (Test-Connection 'github.com' -Count 1 -Quiet -TimeoutSeconds 1 -ErrorAction SilentlyContinue))
+    # Validate API URL
+    if (-not [Uri]::IsWellFormedUriString($ApiUrl, [UriKind]::Absolute))
     {
+        Write-Error "Invalid API URL: $ApiUrl"
+        return $false
+    }
+
+    # Check network connectivity
+    if (-not (Test-Connection 'github.com' -Count 1 -Quiet -TimeoutSeconds 2 -ErrorAction SilentlyContinue))
+    {
+        Write-Error "No internet connection to github.com"
         return $false
     }
 
     try
     {
-        $latestReleaseInfo = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 5
+        $latestReleaseInfo = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 5 -ErrorAction Stop
         $tag = $latestReleaseInfo.tag_name -replace '^[vV]', ''
+
+        # Validate version format
+        if (-not ($tag -match '^\d+\.\d+\.\d+'))
+        {
+            Write-Error "Invalid version format: $tag"
+            return $false
+        }
+
         $latestVersion = [Version]$tag
     }
     catch
     {
+        Write-Error "Failed to fetch latest PowerShell version: $_"
         return $false
     }
 
-    if ($PSVersionTable.PSVersion -lt $latestVersion)
+    $currentVersion = $PSVersionTable.PSVersion
+    if ($currentVersion -ge $latestVersion -and -not $Force)
     {
-        if ($IsWindows)
-        {
-            $packageManagers = @('winget', 'choco', 'scoop')
-        }
-        elseif ($IsMacOS)
-        {
-            $packageManagers = @('brew')
-        }
-        elseif ($IsLinux)
-        {
-            $packageManagers = @('apt', 'dnf', 'pacman', 'zypper', 'emerge')
-        }
-        else
-        {
-            $packageManagers = @()
-        }
+        Write-Verbose "PowerShell is up to date (v$currentVersion)"
+        return $true
+    }
 
-        if (-not $packageManagers)
-        {
-            return
-        }
+    Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
-        foreach ($pm in $packageManagers)
+    # Determine package managers by OS
+    $packageManagers = @(
+        @{ Name = 'winget'; OS = 'Windows'; Cmd = "winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h" },
+        @{ Name = 'choco'; OS = 'Windows'; Cmd = 'choco upgrade powershell-core -y' },
+        @{ Name = 'scoop'; OS = 'Windows'; Cmd = 'scoop update powershell' },
+        @{ Name = 'brew'; OS = 'macOS'; Cmd = 'brew upgrade powershell' },
+        @{ Name = 'apt'; OS = 'Linux'; Cmd = 'sudo apt update && sudo apt install powershell -y' },
+        @{ Name = 'dnf'; OS = 'Linux'; Cmd = 'sudo dnf install powershell -y' },
+        @{ Name = 'pacman'; OS = 'Linux'; Cmd = 'sudo pacman -S powershell' },
+        @{ Name = 'zypper'; OS = 'Linux'; Cmd = 'sudo zypper install powershell' }
+    ) | Where-Object {
+        ($IsWindows -and $_.OS -eq 'Windows') -or
+        ($IsMacOS -and $_.OS -eq 'macOS') -or
+        ($IsLinux -and $_.OS -eq 'Linux')
+    }
+
+    $updated = $false
+    foreach ($pmConfig in $packageManagers)
+    {
+        if (Get-Command $pmConfig.Name -ErrorAction SilentlyContinue)
         {
-            if (Get-Command $pm -ErrorAction SilentlyContinue -CommandType Application)
+            Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
+            try
             {
-                try
-                {
-                    switch ($pm)
-                    {
-                        'winget'
-                        {
-                            winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h
-                        }
-                        'choco'
-                        {
-                            choco upgrade powershell-core -y
-                        }
-                        'scoop'
-                        {
-                            scoop update powershell
-                        }
-                        'brew'
-                        {
-                            brew upgrade powershell
-                        }
-                        { $_ -in @('apt', 'dnf', 'pacman', 'zypper', 'emerge') }
-                        {
-                            Write-Host "Run: sudo $pm install powershell-core (or equivalent for your distro)"
-                        }
-                    }
-                }
-                catch
-                {
-                    # Silently continue if package manager update fails
-                }
+                Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
+                Write-Host "PowerShell updated successfully with $($pmConfig.Name)" -ForegroundColor Green
+                $updated = $true
                 break
+            }
+            catch
+            {
+                Write-Warning "Failed to update with $($pmConfig.Name): $_"
+                continue
             }
         }
     }
+
+    if (-not $updated)
+    {
+        Write-Error "Could not find a suitable package manager to update PowerShell"
+        Write-Host "Available package managers: $($packageManagers.Name -join ', ')"
+        return $false
+    }
+
+    Write-Host "Please restart PowerShell to use the updated version." -ForegroundColor Cyan
+    return $true
 }
 
 # --- Fast Mounting & Module Loading ---
