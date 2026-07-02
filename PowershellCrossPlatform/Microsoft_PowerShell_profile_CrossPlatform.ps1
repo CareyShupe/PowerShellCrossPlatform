@@ -43,8 +43,16 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
 
-# $GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
+$GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
+
+# --- To check if or make PSGallery trusted ---
+$repo = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
+
+if ($repo -and -not $repo.Trusted)
+{
+    Set-PSResourceRepository -Name PSGallery -Trusted
+}
 
 ## --- Admin Detection ---
 if ($IsWindows)
@@ -86,13 +94,14 @@ if ($IsWindows)
 function Update-Modules
 {
     $modules = @(
-        'PSScriptAnalyzer'
-        'Pester'
-        'PowerShellGet'
-        'PackageManagement'
-        'Terminal-Icons'
-        'PSReadLine'
-    )
+    'PSScriptAnalyzer'
+    'Pester'
+    'PowerShellGet'
+    'PackageManagement'
+    'Microsoft.PowerShell.ThreadJob'
+    'Terminal-Icons'
+    'PSReadLine'
+)
 
     $latestModules = Find-Module -Name $modules -ErrorAction SilentlyContinue
 
@@ -254,36 +263,63 @@ if ($IsWindows)
 }
 
 # --- Deferred Maintenance Gate (Non-blocking execution) ---
-# Use cross-platform temp path
-$tempPath = if ($IsWindows)
-{
-    $env:TEMP
-}
-else
-{
-    $env:TMPDIR
-}
-$checkFile = Join-Path $tempPath "ps_update_check.txt"
 
-$lastCheck = Get-Content $checkFile -ErrorAction SilentlyContinue
-if (-not $lastCheck -or ((Get-Date) - [datetime]$lastCheck).TotalHours -gt 24)
+$tempPath  = [System.IO.Path]::GetTempPath()
+$checkFile = Join-Path -Path $tempPath -ChildPath 'ps_update_check.txt'
+
+# Read the last successful update check
+$lastCheck = $null
+
+if (Test-Path $checkFile)
 {
-    # Use ThreadJob if available, otherwise fall back to synchronous execution
+    try
+    {
+        $lastCheck = [datetime](Get-Content -Path $checkFile -Raw)
+    }
+    catch
+    {
+        # Corrupted or invalid timestamp; force a new check
+        $lastCheck = $null
+    }
+}
+
+# Only perform maintenance once every 24 hours
+if (-not $lastCheck -or ((Get-Date) - $lastCheck).TotalHours -ge 24)
+{
+    # Use ThreadJob when available
     if (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
     {
-        Start-ThreadJob -ScriptBlock {
-            param($Url, $CheckFile)
-            Update-Modules
-            Update-PowerShell -ApiUrl $Url
-            (Get-Date).ToString() | Set-Content $CheckFile
-        } -ArgumentList $GLOBAL_GitHubApiUrl, $checkFile | Out-Null
+        Start-ThreadJob -ArgumentList $checkFile -ScriptBlock {
+            param($CheckFile)
+
+            try
+            {
+                Update-Modules
+                Update-PowerShell
+
+                (Get-Date).ToString('o') |
+                    Set-Content -Path $CheckFile -Encoding UTF8
+            }
+            catch
+            {
+                # Ignore maintenance failures during profile load
+            }
+        } | Out-Null
     }
     else
     {
-        # Fallback for systems without ThreadJob
-        Update-Modules
-        Update-PowerShell -ApiUrl $GLOBAL_GitHubApiUrl
-        (Get-Date).ToString() | Set-Content $checkFile
+        try
+        {
+            Update-Modules
+            Update-PowerShell
+
+            (Get-Date).ToString('o') |
+                Set-Content -Path $checkFile -Encoding UTF8
+        }
+        catch
+        {
+            # Ignore maintenance failures during profile load
+        }
     }
 }
 
@@ -314,7 +350,7 @@ $PSReadLineOptions = @{
     ContinuationPrompt            = ' '
     Colors                        = @{
         Command            = $PSStyle.Foreground.BrightYellow
-        Comment            = $PSStyle.Foreground.BrightGreen
+        Comment  		   = $PSStyle.Foreground.BrightGreen
         ContinuationPrompt = $PSStyle.Foreground.BrightWhite
         Default            = $PSStyle.Foreground.BrightWhite
         Emphasis           = $PSStyle.Foreground.Cyan
