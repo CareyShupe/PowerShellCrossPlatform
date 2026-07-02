@@ -85,34 +85,42 @@ if ($IsWindows)
 # --- Core Functions ---
 function Update-Modules
 {
-    $modules = @('PSScriptAnalyzer', 'Pester', 'PowerShellGet', 'PackageManagement', 'Terminal-Icons', 'PSReadLine')
+    $modules = @(
+        'PSScriptAnalyzer'
+        'Pester'
+        'PowerShellGet'
+        'PackageManagement'
+        'Terminal-Icons'
+        'PSReadLine'
+    )
+
     $latestModules = Find-Module -Name $modules -ErrorAction SilentlyContinue
 
-    if (-not $latestModules)
+    foreach ($module in $modules)
     {
-        return
+        $installed = Get-Module -ListAvailable -Name $module |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+
+        $latest = $latestModules | Where-Object Name -EQ $module
+
+        if ($latest -and (-not $installed -or $installed.Version -lt $latest.Version))
+        {
+            try
+            {
+                Install-Module -Name $module `
+                    -Scope CurrentUser `
+                    -Force `
+                    -AllowClobber `
+                    -SkipPublisherCheck `
+                    -ErrorAction Stop
+            }
+            catch
+            {
+                Write-Verbose "Failed updating $module : $_"
+            }
+        }
     }
-
-    $modules | ForEach-Object -Parallel {
-        try
-        {
-            $installed = Get-Module -ListAvailable -Name $_ | Sort-Object Version -Descending | Select-Object -First 1
-            $latest = $using:latestModules | Where-Object Name -EQ $_
-            if (-not $latest)
-            {
-                return
-            }
-
-            if (-not $installed -or ($installed.Version -lt $latest.Version))
-            {
-                Install-Module -Name $_ -Force -Scope CurrentUser -AllowClobber -SkipPublisherCheck
-            }
-        }
-        catch
-        {
-            # Silently skip failed module updates
-        }
-    } -ThrottleLimit 3
 }
 
 function Update-PowerShell
