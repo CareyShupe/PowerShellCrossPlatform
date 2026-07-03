@@ -43,7 +43,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
 
-$GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
+#$GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
 
 # --- To check if or make PSGallery trusted ---
@@ -94,14 +94,14 @@ if ($IsWindows)
 function Update-Modules
 {
     $modules = @(
-    'PSScriptAnalyzer'
-    'Pester'
-    'PowerShellGet'
-    'PackageManagement'
-    'Microsoft.PowerShell.ThreadJob'
-    'Terminal-Icons'
-    'PSReadLine'
-)
+        'PSScriptAnalyzer'
+        'Pester'
+        'PowerShellGet'
+        'PackageManagement'
+        'Microsoft.PowerShell.ThreadJob'
+        'Terminal-Icons'
+        'PSReadLine'
+    )
 
     $latestModules = Find-Module -Name $modules -ErrorAction SilentlyContinue
 
@@ -134,23 +134,16 @@ function Update-Modules
 
 function Update-PowerShell
 {
-    param (
+    [CmdletBinding(SupportsShouldProcess)]
+
+    param(
         [string]$ApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest',
-        [switch]$Force,
-        [switch]$Verbose
+        [switch]$Force
     )
 
-    # Validate API URL
     if (-not [Uri]::IsWellFormedUriString($ApiUrl, [UriKind]::Absolute))
     {
         Write-Error "Invalid API URL: $ApiUrl"
-        return $false
-    }
-
-    # Check network connectivity
-    if (-not (Test-Connection 'github.com' -Count 1 -Quiet -TimeoutSeconds 2 -ErrorAction SilentlyContinue))
-    {
-        Write-Error "No internet connection to github.com"
         return $false
     }
 
@@ -159,8 +152,7 @@ function Update-PowerShell
         $latestReleaseInfo = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 5 -ErrorAction Stop
         $tag = $latestReleaseInfo.tag_name -replace '^[vV]', ''
 
-        # Validate version format
-        if (-not ($tag -match '^\d+\.\d+\.\d+'))
+        if (-not ($tag -match '^\d+\.\d+\.\d+(-.+)?$'))
         {
             Write-Error "Invalid version format: $tag"
             return $false
@@ -170,20 +162,20 @@ function Update-PowerShell
     }
     catch
     {
-        Write-Error "Failed to fetch latest PowerShell version: $_"
+        Write-Error "Failed to retrieve the latest PowerShell release. $_"
         return $false
     }
 
     $currentVersion = $PSVersionTable.PSVersion
-    if ($currentVersion -ge $latestVersion -and -not $Force)
+
+    if (($currentVersion -ge $latestVersion) -and (-not $Force))
     {
-        Write-Verbose "PowerShell is up to date (v$currentVersion)"
+        Write-Verbose "PowerShell is already up to date (v$currentVersion)."
         return $true
     }
 
     Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
-    # Determine package managers by OS
     $packageManagers = @(
         @{ Name = 'winget'; OS = 'Windows'; Cmd = "winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h" },
         @{ Name = 'choco'; OS = 'Windows'; Cmd = 'choco upgrade powershell-core -y' },
@@ -200,34 +192,41 @@ function Update-PowerShell
     }
 
     $updated = $false
+
     foreach ($pmConfig in $packageManagers)
     {
-        if (Get-Command $pmConfig.Name -ErrorAction SilentlyContinue)
+        if (Get-Command $pmConfig.Name -ErrorAction Ignore)
         {
-            Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
-            try
+
+            if ($PSCmdlet.ShouldProcess('PowerShell', "Update using $($pmConfig.Name)"))
             {
-                Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
-                Write-Host "PowerShell updated successfully with $($pmConfig.Name)" -ForegroundColor Green
-                $updated = $true
-                break
-            }
-            catch
-            {
-                Write-Warning "Failed to update with $($pmConfig.Name): $_"
-                continue
+                Write-Verbose "Attempting update using $($pmConfig.Name)..."
+
+                try
+                {
+                    Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
+
+                    Write-Host "PowerShell updated successfully using $($pmConfig.Name)." -ForegroundColor Green
+
+                    $updated = $true
+                    break
+                }
+                catch
+                {
+                    Write-Warning "Update failed using $($pmConfig.Name): $_"
+                }
             }
         }
     }
 
     if (-not $updated)
     {
-        Write-Error "Could not find a suitable package manager to update PowerShell"
-        Write-Host "Available package managers: $($packageManagers.Name -join ', ')"
+        Write-Error "No supported package manager successfully updated PowerShell."
         return $false
     }
 
-    Write-Host "Please restart PowerShell to use the updated version." -ForegroundColor Cyan
+    Write-Host "Restart PowerShell to begin using version $latestVersion." -ForegroundColor Cyan
+
     return $true
 }
 
@@ -264,7 +263,7 @@ if ($IsWindows)
 
 # --- Deferred Maintenance Gate (Non-blocking execution) ---
 
-$tempPath  = [System.IO.Path]::GetTempPath()
+$tempPath = [System.IO.Path]::GetTempPath()
 $checkFile = Join-Path -Path $tempPath -ChildPath 'ps_update_check.txt'
 
 # Read the last successful update check
@@ -299,22 +298,22 @@ if (-not $lastCheck -or ((Get-Date) - $lastCheck).TotalHours -ge 24)
 
                 (Get-Date).ToString('o') |
                     Set-Content -Path $CheckFile -Encoding UTF8
-            }
-            catch
-            {
-                # Ignore maintenance failures during profile load
-            }
-        } | Out-Null
-    }
-    else
-    {
-        try
+                }
+                catch
+                {
+                    # Ignore maintenance failures during profile load
+                }
+            } | Out-Null
+        }
+        else
         {
-            Update-Modules
-            Update-PowerShell
+            try
+            {
+                Update-Modules
+                Update-PowerShell
 
-            (Get-Date).ToString('o') |
-                Set-Content -Path $checkFile -Encoding UTF8
+                (Get-Date).ToString('o') |
+                    Set-Content -Path $checkFile -Encoding UTF8
         }
         catch
         {
@@ -350,7 +349,7 @@ $PSReadLineOptions = @{
     ContinuationPrompt            = ' '
     Colors                        = @{
         Command            = $PSStyle.Foreground.BrightYellow
-        Comment  		   = $PSStyle.Foreground.BrightGreen
+        Comment            = $PSStyle.Foreground.BrightGreen
         ContinuationPrompt = $PSStyle.Foreground.BrightWhite
         Default            = $PSStyle.Foreground.BrightWhite
         Emphasis           = $PSStyle.Foreground.Cyan
