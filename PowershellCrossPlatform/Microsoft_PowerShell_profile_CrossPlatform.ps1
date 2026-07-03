@@ -34,7 +34,7 @@ $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
 # Auto-updating system packages (apt/dnf/pacman/zypper/winget/choco/scoop/brew) unattended
 # can hang on a sudo password prompt or surprise you with an upgrade you didn't ask for.
 # Off by default. Flip to $true (or run `Update-PowerShell -Force` manually) to opt in.
-$Script:EnableAutoPackageUpdate = $false
+$Script:EnableAutoPackageUpdate = $true
 
 # --- To check if or make PSGallery trusted ---
 $repo = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
