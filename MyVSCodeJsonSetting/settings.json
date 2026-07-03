@@ -1,0 +1,257 @@
+{
+  // My revision on my user settings started on 05/20/24.
+  // It's been a work in progress and when I see Justin Grote settings.
+  // I will finish my revision.
+  //
+  // Controls the automatic update behavior of extensions.
+  "extensions.autoUpdate": true,
+  // When enabled, the notifications for extension recommendations will not be shown.
+  "extensions.ignoreRecommendations": true,
+  //
+  //  Powershell Setting in Visual Studio Code JSON.
+  //
+  // Controls whether snippets are shown with other suggestions and how they are sorted.
+  //  - top: Show snippet suggestions on top of other suggestions.
+  //  - bottom: Show snippet suggestions below other suggestions.
+  //  - inline: Show snippets suggestions with other suggestions.
+  //  - none: Do not show snippet suggestions.
+  "editor.snippetSuggestions": "bottom",
+  // Controls whether an active snippet prevents quick suggestions.
+  "editor.suggest.snippetsPreventQuickSuggestions": false,
+  // Powershell does this so bring it over.
+  "editor.tabCompletion": "on",
+  // The default language identifier that is assigned to new files.
+  "files.defaultLanguage": "PS5.1",
+  // powershell settings
+  // you can specify a custom location for the powershell.exe/pwsh.exe file
+  // not required if you just want to use the default locations
+  "powershell.powerShellAdditionalExePaths": {
+    "PS7": "${env:SystemRoot}\\Program Files\\PowerShell\\7\\pwsh.exe",
+    "PS5.1": "${env:SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    // "${env:SystemRoot}\\System32\\WindowsPowerShell\\v1.0\\pwsh.exe"
+  },
+  // Specifies the default PowerShell version started by the extension.
+  "powershell.powerShellDefaultVersion": "Powershell",
+  // A set of terminal profile customizations for Windows which allows adding,  removing or changing how terminals are launched. Profiles are made up of a  mandatory path, optional arguments and other presentation options.
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PS7",
+      "icon": "terminal-powershell",
+      "args": [
+        "-NoLogo",
+        "-NoExit",
+        "-Command",
+        "'v{0} x{1}' -f $PSVersionTable.PSVersion.ToString(),$(if([System.Environment]::Is64BitProcess){'64'}else{'86'})"
+      ],
+      "overrideName": true
+    },
+    "Command Prompt": {
+      "path": [
+        "${env:windir}\\Sysnative\\cmd.exe",
+        "${env:windir}\\System32\\cmd.exe"
+      ],
+      "args": [],
+      "icon": "terminal-cmd"
+    },
+    "Git Bash": {
+      "source": "Git Bash",
+      "icon": "terminal-bash"
+    },
+    "files.exclude": {
+      "**/.git": false
+    }
+  },
+  // Starts the PowerShell extension automatically when a PowerShell file is opened.
+  "powershell.startAutomatically": true,
+  // Enables real-time script analysis using [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer)
+  // that populates the [Problems view](command:workbench.panel.markers.view.focus).
+  "powershell.scriptAnalysis.enable": true,
+  // Specifies the path to a [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer) settings file.
+  "powershell.scriptAnalysis.settingsPath": "./PSScriptAnalyzer.psd1",
+  // Switches focus to the console when a script selection is run or a script file is debugged.
+  "powershell.integratedConsole.focusConsoleOnExecute": false,
+  // Specifies whether the extension loads PowerShell profiles.
+  "powershell.enableProfileLoading": true,
+  "powershell.developer.editorServicesLogLevel": "Verbose",
+  "powershell.integratedConsole.showOnStartup": false,
+  // Sets the code formatting options to follow the given indent style in a way that is compatible with PowerShell syntax. Any setting other than `Custom` will configure (and override) the settings:
+  //  - Custom: The three brace settings are respected as-is.
+  //  - Allman: Sets `powershell.codeFormatting.openBraceOnSameLine#` to `false`, `#powershell.codeFormatting.newLineAfterOpenBrace#` to `true`, and `#powershell.codeFormatting.newLineAfterCloseBrace` to `true`.
+  //  - OTBS: Sets `powershell.codeFormatting.openBraceOnSameLine#` to `true`, `#powershell.codeFormatting.newLineAfterOpenBrace#` to `true`, and `#powershell.codeFormatting.newLineAfterCloseBrace` to `false`.
+  //  - Stroustrup: Sets `powershell.codeFormatting.openBraceOnSameLine#` to `true`, `#powershell.codeFormatting.newLineAfterOpenBrace#` to `true`, and `#powershell.codeFormatting.newLineAfterCloseBrace` to `true`.
+  "powershell.codeFormatting.preset": "Stroustrup",
+  // Use correct casing for cmdlets.
+  "powershell.codeFormatting.useCorrectCasing": true,
+  // Replaces aliases with their aliased name.
+  "powershell.codeFormatting.autoCorrectAliases": true,
+  // Adds a newline (line break) after an open brace.
+  "powershell.codeFormatting.newLineAfterOpenBrace": true,
+  // Adds a newline (line break) after a closing brace.
+  "powershell.codeFormatting.newLineAfterCloseBrace": true,
+  // Adds a space between a keyword and its associated script-block expression.
+  "powershell.codeFormatting.whitespaceBeforeOpenBrace": true,
+  // Adds a space between a keyword (`if`, `elseif`, `while`, `switch`, etc.) and its associated conditional expression.
+  "powershell.codeFormatting.whitespaceBeforeOpenParen": true,
+  // Adds spaces before and after an operator (`=`, `+`, `-`, etc.).
+  "powershell.codeFormatting.whitespaceAroundOperator": true,
+  // Adds a space after a separator (`,` and `;`).
+  "powershell.codeFormatting.whitespaceAfterSeparator": true,
+  // Does not reformat one-line code blocks, such as: `if (...) {...} else {...}`.
+  "powershell.codeFormatting.ignoreOneLineBlock": true,
+  // Places open brace on the same line as its associated statement.
+  "powershell.codeFormatting.openBraceOnSameLine": true,
+  // Align assignment statements in a hashtable or a DSC Configuration.
+  "powershell.codeFormatting.alignPropertyValuePairs": false,
+  // Enables syntax based code folding. When disabled, the default indentation based code folding is used.
+  "powershell.codeFolding.enable": true,
+  // An array of strings that enable experimental features in the PowerShell extension.
+  "powershell.developer.featureFlags": [
+    "PSReadLine"
+  ],
+  // Configure editor settings to be overridden for a language.
+  "[powershell]": {
+    "editor.defaultFormatter": "ms-vscode.powershell",
+    "editor.language.brackets": [
+      [
+        "{",
+        "}"
+      ],
+      [
+        "(",
+        ")"
+      ],
+      [
+        "#region",
+        "#endregion"
+      ]
+    ],
+    // Controls whether the semanticHighlighting is shown for the languages that support it.
+    "editor.semanticHighlighting.enabled": false,
+    "editor.wordBasedSuggestions": false,
+    // Characters that will be used as word separators when doing word related navigations or operations.
+    "editor.wordSeparators": "`~!@#$%^&*()=+[{}]}\\|;:'\",.<>/?"
+  },
+  // Specifies the color theme used in the workbench when `window.autoDetectColorScheme` is not enabled.
+  "workbench.colorTheme": "Tomorrow Night Blue",
+  // When enabled, will trim trailing whitespace when saving a file.
+  "files.trimTrailingWhitespace": true,
+  "editor.scrollBeyondLastLine": false,
+  "editor.tabSize": 2,
+  "editor.detectIndentation": false,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  // Render vertical rulers after a certain number of monospace characters. Use multiple values for multiple rulers.
+  // No rulers are drawn if array is empty.
+  "editor.rulers": [
+    120
+  ],
+  // Controls how lines should wrap.
+  "editor.wordWrap": "on",
+  // editor settings that will add the closing quote or curly brace
+  "editor.autoClosingBrackets": "always",
+  // Controls whether the editor should automatically close quotes after the user adds an opening quote.
+  "editor.autoClosingQuotes": "always",
+  // Controls whether the editor should automatically surround selections when typing quotes or brackets.
+  "editor.autoSurround": "languageDefined",
+  // Controls the wrapping column of the editor when `editor.wordWrap` is `wordWrapColumn` or `bounded`.
+  "editor.wordWrapColumn": 120,
+  //I don't find this useful, wasted screen space.
+  "editor.minimap.enabled": false,
+  // Zoom the font of the editor when using mouse wheel and holding Ctrl.
+  "editor.mouseWheelZoom": true,
+  "workbench.tree.indent": 16,
+  "workbench.editor.highlightModifiedTabs": true,
+  "terminal.integrated.fontSize": 12,
+  "editor.fontFamily": "Fira Code",
+  "editor.lineHeight": 19,
+  "editor.fontLigatures": true,
+  "editor.suggestSelection": "first",
+  "window.zoomLevel": 0,
+  // Specifies which messages should be suppressed
+  "gitlens.advanced.messages": {
+    "suppressCommitHasNoPreviousCommitWarning": false,
+    "suppressCommitNotFoundWarning": false,
+    "suppressFileNotUnderSourceControlWarning": false,
+    "suppressGitVersionWarning": false,
+    "suppressLineUncommittedWarning": false,
+    "suppressNoRepositoryWarning": false
+  },
+  "gitlens.keymap": "chorded",
+  // Controls how the editor should render whitespace characters.
+  //  - none
+  //  - boundary: Render whitespace characters except for single spaces between words.
+  //  - selection: Render whitespace characters only on selected text.
+  //  - trailing: Render only trailing whitespace characters.
+  //  - all
+  "editor.renderWhitespace": "none",
+  "terminal.integrated.rendererType": "dom",
+  "git.showPushSuccessNotification": true,
+  "merge-conflict.decorators.enabled": true,
+  "workbench.list.horizontalScrolling": true,
+  "git.enableSmartCommit": true,
+  "git.autofetch": true,
+  "scm.alwaysShowRepositories": true,
+  "scm.alwaysShowActions": true,
+  "scm.countBadge": "focused",
+  "explorer.confirmDelete": false,
+  "terminal.integrated.rightClickBehavior": "default",
+  "window.title": "${activeEditorLong}",
+  // Controls the delay in milliseconds after which quick suggestions will show up.
+  "editor.quickSuggestionsDelay": 1,
+  "breadcrumbs.enabled": false,
+  "editor.cursorBlinking": "expand",
+  "workbench.sideBar.location": "right",
+  "files.autoSave": "afterDelay",
+  "workbench.colorCustomizations": {
+    "activityBar.background": "#211616",
+    "titleBar.activeBackground": "#191919cc",
+    "titleBar.activeForeground": "#6b5a5a",
+    "titleBar.inactiveForeground": "#000000CC",
+    "titleBar.inactiveBackground": "#ffc600CC",
+    "sideBar.background": "#000000",
+    "sideBar.foreground": "#d7d7d7",
+    "list.hoverBackground": "#39739d",
+    "list.hoverForeground": "#252b19",
+    "list.activeSelectionBackground": "#33434e",
+    "editorLineNumber.activeForeground": "#09ff00",
+    "editor.background": "#1a1a1a",
+    "editor.colorDecorators": true,
+    "editorBracketHighlight.foreground1": "#FFD700",
+    "editorBracketHighlight.foreground2": "#DA70D6",
+    "editorBracketHighlight.foreground3": "#179fff",
+    "errorLens.errorBackground": "#e4545410",
+    "errorLens.errorForeground": "#ff646440",
+    "errorLens.errorMessageBackground": "#e4545405",
+    "errorLens.warningBackground": "#ff942f10",
+    "errorLens.warningForeground": "#fa973a70",
+    "errorLens.warningMessageBackground": "#fff00005",
+    "tab.activeBorder": "#39739d",
+    "tab.activeForeground": "#fff",
+    "tab.hoverBackground": "#333e36",
+    "tab.activeBackground": "#282828",
+    "tab.border": "#000",
+    "tab.activeModifiedBorder": "#ff0000",
+    "terminal.ansiBlack": "#000000",
+    "terminal.ansiBlue": "#2472c8",
+    "terminal.ansiBrightBlack": "#666666",
+    "terminal.ansiBrightBlue": "#569cd6",
+    "terminal.ansiBrightCyan": "#9cdcfe",
+    "terminal.ansiBrightGreen": "#b5cea8",
+    "terminal.ansiBrightMagenta": "#daadd6",
+    "terminal.ansiBrightRed": "#f14c4c",
+    "terminal.ansiBrightWhite": "#e5e5e5",
+    "terminal.ansiBrightYellow": "#DCDCAA",
+    "terminal.ansiCyan": "#11a8cd",
+    "terminal.ansiGreen": "#6a9955",
+    "terminal.ansiMagenta": "#C586C0",
+    "terminal.ansiRed": "#cd3131",
+    "terminal.ansiWhite": "#e5e5e5",
+    "terminal.ansiYellow": "#CE9178",
+    "terminal.background": "#1E1E1E",
+    "terminal.foreground": "#D4D4D4"
+  },
+  "workbench.iconTheme": "vscode-icons",
+  "powershell.pester.codeLens": false,
+  "terminal.integrated.defaultProfile.windows": "Git Bash"
+}
