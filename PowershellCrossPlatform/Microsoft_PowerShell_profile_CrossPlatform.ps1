@@ -1,3 +1,4 @@
+
 <#
 .SYNOPSIS
     Custom PowerShell 7+ Core Profile Configuration (Cross-Platform).
@@ -5,46 +6,35 @@
     Optimized terminal profile handling environment variables, fast registry drive
     mounting (Windows only), deferred asynchronous module/engine maintenance updates,
     custom PSReadLine interactive configurations, and native command completions.
-    Now supports Windows, macOS, and Linux.
+    Supports Windows, macOS, and Linux.
 .NOTES
     File Path:   $PROFILE
     Author:      Carey Shupe (Updated for cross-platform)
-    Version:     3.0
-    Engine:      PowerShell Core v7.0+ (Required)
+    Version:     3.1
+    Engine:      PowerShell Core v7.2+ (Required - uses $PSStyle)
     Platform:    Windows, macOS, Linux
     Dependencies: PSReadLine (v2.2.0+ preferred), Terminal-Icons, oh-my-posh
 .LINK
     https://github.com/PowerShell/PSReadLine
 #>
 
-#requires -Version 7.0
+#requires -Version 7.2
 using namespace System.Management.Automation
 using namespace System.Management.Automation.Language
 using namespace System.Diagnostics.CodeAnalysis
-
-# --- Platform Detection (PowerShell 7+ built-in variables) ---
-# $IsWindows, $IsMacOS, $IsLinux are automatically available
-# Fallback for older builds
-if (-not (Get-Variable -Name IsWindows -Scope Script -ErrorAction SilentlyContinue))
-{
-    $Script:ProfileIsWindows = $PSVersionTable.OS -like '*Windows*'
-    $Script:ProfileIsMacOS = $PSVersionTable.OS -like '*Darwin*'
-    $Script:ProfileIsLinux = $PSVersionTable.OS -like '*Linux*'
-}
-else
-{
-    $Script:ProfileIsWindows = $IsWindows
-    $Script:ProfileIsMacOS = $IsMacOS
-    $Script:ProfileIsLinux = $IsLinux
-}
 
 # --- Console & Host Behavior ---
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version Latest
 
-#$GLOBAL_GitHubApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest'
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
+
+# --- User-configurable switches ---
+# Auto-updating system packages (apt/dnf/pacman/zypper/winget/choco/scoop/brew) unattended
+# can hang on a sudo password prompt or surprise you with an upgrade you didn't ask for.
+# Off by default. Flip to $true (or run `Update-PowerShell -Force` manually) to opt in.
+$Script:EnableAutoPackageUpdate = $false
 
 # --- To check if or make PSGallery trusted ---
 $repo = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
@@ -141,6 +131,12 @@ function Update-PowerShell
         [switch]$Force
     )
 
+    if (-not $Script:EnableAutoPackageUpdate -and -not $Force)
+    {
+        Write-Verbose 'Auto package update disabled ($Script:EnableAutoPackageUpdate = $false). Skipping. Use -Force to override.'
+        return $true
+    }
+
     if (-not [Uri]::IsWellFormedUriString($ApiUrl, [UriKind]::Absolute))
     {
         Write-Error "Invalid API URL: $ApiUrl"
@@ -166,7 +162,12 @@ function Update-PowerShell
         return $false
     }
 
-    $currentVersion = $PSVersionTable.PSVersion
+    # $PSVersionTable.PSVersion is a [semver] in PS7+; normalize to [Version] for a clean comparison.
+    $currentVersion = [Version]::new(
+        $PSVersionTable.PSVersion.Major,
+        $PSVersionTable.PSVersion.Minor,
+        $PSVersionTable.PSVersion.Patch
+    )
 
     if (($currentVersion -ge $latestVersion) -and (-not $Force))
     {
@@ -197,7 +198,6 @@ function Update-PowerShell
     {
         if (Get-Command $pmConfig.Name -ErrorAction Ignore)
         {
-
             if ($PSCmdlet.ShouldProcess('PowerShell', "Update using $($pmConfig.Name)"))
             {
                 Write-Verbose "Attempting update using $($pmConfig.Name)..."
@@ -285,14 +285,20 @@ if (Test-Path $checkFile)
 # Only perform maintenance once every 24 hours
 if (-not $lastCheck -or ((Get-Date) - $lastCheck).TotalHours -ge 24)
 {
-    # Use ThreadJob when available
+    # Capture the functions as text so they can be rehydrated inside the ThreadJob's
+    # own runspace - a ThreadJob does NOT inherit functions defined in this session.
+    $updateModulesDef = "function Update-Modules { ${function:Update-Modules} }"
+    $updatePowerShellDef = "function Update-PowerShell { ${function:Update-PowerShell} }"
+    $initScript = [scriptblock]::Create("$updateModulesDef`n$updatePowerShellDef")
+
     if (Get-Command Start-ThreadJob -ErrorAction SilentlyContinue)
     {
-        Start-ThreadJob -ArgumentList $checkFile -ScriptBlock {
-            param($CheckFile)
+        Start-ThreadJob -InitializationScript $initScript -ArgumentList $checkFile, $Script:EnableAutoPackageUpdate -ScriptBlock {
+            param($CheckFile, $AutoPackageUpdate)
 
             try
             {
+                $Script:EnableAutoPackageUpdate = $AutoPackageUpdate
                 Update-Modules
                 Update-PowerShell
 
@@ -327,7 +333,7 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
 {
     $themePath = if ($env:POSH_THEMES_PATH)
     {
-        "$env:POSH_THEMES_PATH\jandedobbeleer.omp.json"
+        Join-Path -Path $env:POSH_THEMES_PATH -ChildPath 'jandedobbeleer.omp.json'
     }
     else
     {
@@ -345,6 +351,7 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
 }
 
 # --- PSReadLine Configurations ---
+# Note: $PSStyle requires PowerShell 7.2+ (enforced by #requires above).
 $PSReadLineOptions = @{
     ContinuationPrompt            = ' '
     Colors                        = @{
@@ -373,10 +380,14 @@ $PSReadLineOptions = @{
     ShowToolTips                  = $true
     MaximumHistoryCount           = 10000
     BellStyle                     = "None"
-    AddToHistoryHandler           = { param($line) if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#')
+    AddToHistoryHandler           = {
+        param($line)
+        if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#')
         {
             return
-        }; $line }
+        }
+        $line
+    }
 }
 
 if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)
@@ -690,6 +701,10 @@ foreach ($editor in $editors)
         break
     }
 }
+
+# Export to the environment so external tools (git, gh, crontab, etc.) pick the same editor.
+$env:EDITOR = $EDITOR
+$env:VISUAL = $EDITOR
 
 # --- Cross-Platform Open Function ---
 function Open-Item
