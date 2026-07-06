@@ -124,22 +124,23 @@ function Update-Modules
 
 function Update-PowerShell
 {
-    [CmdletBinding(SupportsShouldProcess)]
-
-    param(
+    param (
         [string]$ApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest',
-        [switch]$Force
+        [switch]$Force,
+        [switch]$Verbose
     )
 
-    if (-not $Script:EnableAutoPackageUpdate -and -not $Force)
-    {
-        Write-Verbose 'Auto package update disabled ($Script:EnableAutoPackageUpdate = $false). Skipping. Use -Force to override.'
-        return $true
-    }
-
+    # Validate API URL
     if (-not [Uri]::IsWellFormedUriString($ApiUrl, [UriKind]::Absolute))
     {
         Write-Error "Invalid API URL: $ApiUrl"
+        return $false
+    }
+
+    # Check network connectivity
+    if (-not (Test-Connection 'github.com' -Count 1 -Quiet -TimeoutSeconds 2 -ErrorAction SilentlyContinue))
+    {
+        Write-Error "No internet connection to github.com"
         return $false
     }
 
@@ -148,7 +149,8 @@ function Update-PowerShell
         $latestReleaseInfo = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 5 -ErrorAction Stop
         $tag = $latestReleaseInfo.tag_name -replace '^[vV]', ''
 
-        if (-not ($tag -match '^\d+\.\d+\.\d+(-.+)?$'))
+        # Validate version format
+        if (-not ($tag -match '^\d+\.\d+\.\d+'))
         {
             Write-Error "Invalid version format: $tag"
             return $false
@@ -158,25 +160,20 @@ function Update-PowerShell
     }
     catch
     {
-        Write-Error "Failed to retrieve the latest PowerShell release. $_"
+        Write-Error "Failed to fetch latest PowerShell version: $_"
         return $false
     }
 
-    # $PSVersionTable.PSVersion is a [semver] in PS7+; normalize to [Version] for a clean comparison.
-    $currentVersion = [Version]::new(
-        $PSVersionTable.PSVersion.Major,
-        $PSVersionTable.PSVersion.Minor,
-        $PSVersionTable.PSVersion.Patch
-    )
-
-    if (($currentVersion -ge $latestVersion) -and (-not $Force))
+    $currentVersion = $PSVersionTable.PSVersion
+    if ($currentVersion -ge $latestVersion -and -not $Force)
     {
-        Write-Verbose "PowerShell is already up to date (v$currentVersion)."
+        Write-Verbose "PowerShell is up to date (v$currentVersion)"
         return $true
     }
 
     Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
+    # Determine package managers by OS
     $packageManagers = @(
         @{ Name = 'winget'; OS = 'Windows'; Cmd = "winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h" },
         @{ Name = 'choco'; OS = 'Windows'; Cmd = 'choco upgrade powershell-core -y' },
@@ -193,41 +190,103 @@ function Update-PowerShell
     }
 
     $updated = $false
-
     foreach ($pmConfig in $packageManagers)
     {
-        if (Get-Command $pmConfig.Name -ErrorAction Ignore)
+        if (Get-Command $pmConfig.Name -ErrorAction SilentlyContinue)
         {
-            if ($PSCmdlet.ShouldProcess('PowerShell', "Update using $($pmConfig.Name)"))
+            Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
+            try
             {
-                Write-Verbose "Attempting update using $($pmConfig.Name)..."
-
-                try
-                {
-                    Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
-
-                    Write-Host "PowerShell updated successfully using $($pmConfig.Name)." -ForegroundColor Green
-
-                    $updated = $true
-                    break
-                }
-                catch
-                {
-                    Write-Warning "Update failed using $($pmConfig.Name): $_"
-                }
+                Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
+                Write-Host "PowerShell updated successfully with $($pmConfig.Name)" -ForegroundColor Green
+                $updated = $true
+                break
+            }
+            catch
+            {
+                Write-Warning "Failed to update with $($pmConfig.Name): $_"
+                continue
             }
         }
     }
 
     if (-not $updated)
     {
-        Write-Error "No supported package manager successfully updated PowerShell."
+        Write-Error "Could not find a suitable package manager to update PowerShell"
+        Write-Host "Available package managers: $($packageManagers.Name -join ', ')"
         return $false
     }
 
-    Write-Host "Restart PowerShell to begin using version $latestVersion." -ForegroundColor Cyan
-
+    Write-Host "Please restart PowerShell to use the updated version." -ForegroundColor Cyan
     return $true
+}
+
+# $PSVersionTable.PSVersion is a [semver] in PS7+; normalize to [Version] for a clean comparison.
+$currentVersion = [Version]::new(
+    $PSVersionTable.PSVersion.Major,
+    $PSVersionTable.PSVersion.Minor,
+    $PSVersionTable.PSVersion.Patch
+)
+
+if (($currentVersion -ge $latestVersion) -and (-not $Force))
+{
+    Write-Verbose "PowerShell is already up to date (v$currentVersion)."
+    return $true
+}
+
+Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
+
+$packageManagers = @(
+    @{ Name = 'winget'; OS = 'Windows'; Cmd = "winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h" },
+    @{ Name = 'choco'; OS = 'Windows'; Cmd = 'choco upgrade powershell-core -y' },
+    @{ Name = 'scoop'; OS = 'Windows'; Cmd = 'scoop update powershell' },
+    @{ Name = 'brew'; OS = 'macOS'; Cmd = 'brew upgrade powershell' },
+    @{ Name = 'apt'; OS = 'Linux'; Cmd = 'sudo apt update && sudo apt install powershell -y' },
+    @{ Name = 'dnf'; OS = 'Linux'; Cmd = 'sudo dnf install powershell -y' },
+    @{ Name = 'pacman'; OS = 'Linux'; Cmd = 'sudo pacman -S powershell' },
+    @{ Name = 'zypper'; OS = 'Linux'; Cmd = 'sudo zypper install powershell' }
+) | Where-Object {
+    ($IsWindows -and $_.OS -eq 'Windows') -or
+    ($IsMacOS -and $_.OS -eq 'macOS') -or
+    ($IsLinux -and $_.OS -eq 'Linux')
+}
+
+$updated = $false
+
+foreach ($pmConfig in $packageManagers)
+{
+    if (Get-Command $pmConfig.Name -ErrorAction Ignore)
+    {
+        if ($PSCmdlet.ShouldProcess('PowerShell', "Update using $($pmConfig.Name)"))
+        {
+            Write-Verbose "Attempting update using $($pmConfig.Name)..."
+
+            try
+            {
+                Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
+
+                Write-Host "PowerShell updated successfully using $($pmConfig.Name)." -ForegroundColor Green
+
+                $updated = $true
+                break
+            }
+            catch
+            {
+                Write-Warning "Update failed using $($pmConfig.Name): $_"
+            }
+        }
+    }
+}
+
+if (-not $updated)
+{
+    Write-Error "No supported package manager successfully updated PowerShell."
+    return $false
+}
+
+Write-Host "Restart PowerShell to begin using version $latestVersion." -ForegroundColor Cyan
+
+return $true
 }
 
 # --- Fast Mounting & Module Loading ---
