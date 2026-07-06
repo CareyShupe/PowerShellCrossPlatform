@@ -337,17 +337,17 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
     }
     else
     {
-        # Fallback: use a default theme or let oh-my-posh choose
         ''
     }
 
-    $initCmd = "oh-my-posh init pwsh"
     if ($themePath -and (Test-Path $themePath))
     {
-        $initCmd += " --config `"$themePath`""
+        oh-my-posh init pwsh --config $themePath | Invoke-Expression
     }
-
-    Invoke-Expression $initCmd
+    else
+    {
+        oh-my-posh init pwsh | Invoke-Expression
+    }
 }
 
 # --- PSReadLine Configurations ---
