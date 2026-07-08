@@ -1,4 +1,3 @@
-
 <#
 .SYNOPSIS
     Custom PowerShell 7+ Core Profile Configuration (Cross-Platform).
@@ -187,26 +186,25 @@ function Update-PowerShell
         ($IsWindows -and $_.OS -eq 'Windows') -or
         ($IsMacOS -and $_.OS -eq 'macOS') -or
         ($IsLinux -and $_.OS -eq 'Linux')
+    } | Where-Object {
+        Get-Command $_.Name -ErrorAction SilentlyContinue
     }
 
     $updated = $false
     foreach ($pmConfig in $packageManagers)
     {
-        if (Get-Command $pmConfig.Name -ErrorAction SilentlyContinue)
+        Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
+        try
         {
-            Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
-            try
-            {
-                Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
-                Write-Host "PowerShell updated successfully with $($pmConfig.Name)" -ForegroundColor Green
-                $updated = $true
-                break
-            }
-            catch
-            {
-                Write-Warning "Failed to update with $($pmConfig.Name): $_"
-                continue
-            }
+            Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
+            Write-Host "PowerShell updated successfully with $($pmConfig.Name)" -ForegroundColor Green
+            $updated = $true
+            break
+        }
+        catch
+        {
+            Write-Warning "Failed to update with $($pmConfig.Name): $_"
+            continue
         }
     }
 
