@@ -33,7 +33,7 @@ $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
 # Auto-updating system packages (apt/dnf/pacman/zypper/winget/choco/scoop/brew) unattended
 # can hang on a sudo password prompt or surprise you with an upgrade you didn't ask for.
 # Off by default. Flip to $true (or run `Update-PowerShell -Force` manually) to opt in.
-$Script:EnableAutoPackageUpdate = $true
+$Script:EnableAutoPackageUpdate = $false
 
 # --- To check if or make PSGallery trusted ---
 $repo = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
@@ -172,6 +172,12 @@ function Update-PowerShell
 
     Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
+    if (-not $Script:EnableAutoPackageUpdate -and -not $Force)
+    {
+        Write-Host "Auto package updates are disabled (`$Script:EnableAutoPackageUpdate = `$false). Skipping install step." -ForegroundColor Yellow
+        Write-Host "Run 'Update-PowerShell -Force' to update anyway, or set `$Script:EnableAutoPackageUpdate = `$true in your profile." -ForegroundColor Yellow
+        return $false
+    }
 
     <#
         Determine package managers by OS
@@ -509,6 +515,10 @@ Set-PSReadLineKeyHandler -Key Tab -BriefDescription "GitAutoCorrection" -LongDes
         'cmt'
         {
             [Microsoft.PowerShell.PSConsoleReadLine]::Replace($gitCmd.StartOffset, $gitCmd.EndOffset - $gitCmd.StartOffset, 'commit')
+        }
+        default
+        {
+            [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
         }
     }
 }
