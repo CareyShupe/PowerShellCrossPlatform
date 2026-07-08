@@ -802,7 +802,7 @@ function ll
 
 function la
 {
-    Get-ChildItem -Name @args
+    Get-ChildItem -Name @args -Force
 }
 
 function lh
@@ -817,5 +817,5 @@ function lv
 
 function lb
 {
-    Get-ChildItem @args | Out-Host
+    Get-ChildItem @args -Force | Out-Host
 }
