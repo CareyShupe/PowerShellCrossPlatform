@@ -172,7 +172,14 @@ function Update-PowerShell
 
     Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
-    # Determine package managers by OS
+
+    <#
+        Determine package managers by OS
+
+        Added a second Where-Object filter to verify commands exist before adding them to the array
+        Removed redundant Get-Command check in the loop (already filtered)
+        This is cleaner and won't try to execute commands that don't exist
+    #>
     $packageManagers = @(
         @{ Name = 'winget'; OS = 'Windows'; Cmd = "winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h" },
         @{ Name = 'choco'; OS = 'Windows'; Cmd = 'choco upgrade powershell-core -y' },
