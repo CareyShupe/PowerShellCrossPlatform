@@ -1,4 +1,3 @@
-
 <#
 .SYNOPSIS
     Custom PowerShell 7+ Core Profile Configuration (Cross-Platform).
@@ -10,7 +9,7 @@
 .NOTES
     File Path:   $PROFILE
     Author:      Carey Shupe (Updated for cross-platform)
-    Version:     3.1
+    Version:     3.2
     Engine:      PowerShell Core v7.2+ (Required - uses $PSStyle)
     Platform:    Windows, macOS, Linux
     Dependencies: PSReadLine (v2.2.0+ preferred), Terminal-Icons, oh-my-posh
@@ -31,17 +30,24 @@ Set-StrictMode -Version Latest
 $PSDefaultParameterValues['Out-File:Encoding'] = 'UTF-8'
 
 # --- User-configurable switches ---
-# Auto-updating system packages (apt/dnf/pacman/zypper/winget/choco/scoop/brew) unattended
-# can hang on a sudo password prompt or surprise you with an upgrade you didn't ask for.
-# Off by default. Flip to $true (or run `Update-PowerShell -Force` manually) to opt in.
-$Script:EnableAutoPackageUpdate = $true
+$Script:EnableAutoPackageUpdate = $false
 
 # --- To check if or make PSGallery trusted ---
-$repo = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
-
-if ($repo -and -not $repo.Trusted)
+if (Get-Command Get-PSResourceRepository -ErrorAction SilentlyContinue)
 {
-    Set-PSResourceRepository -Name PSGallery -Trusted
+    $repo = Get-PSResourceRepository -Name PSGallery -ErrorAction SilentlyContinue
+    if ($repo -and -not $repo.Trusted)
+    {
+        Set-PSResourceRepository -Name PSGallery -Trusted
+    }
+}
+elseif (Get-Command Get-PSRepository -ErrorAction SilentlyContinue)
+{
+    $repo = Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue
+    if ($repo -and $repo.InstallationPolicy -ne 'Trusted')
+    {
+        Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    }
 }
 
 ## --- Admin Detection ---
@@ -93,6 +99,7 @@ function Update-Modules
         'PSReadLine'
     )
 
+    $success = $true
     $latestModules = Find-Module -Name $modules -ErrorAction SilentlyContinue
 
     foreach ($module in $modules)
@@ -117,17 +124,19 @@ function Update-Modules
             catch
             {
                 Write-Verbose "Failed updating $module : $_"
+                $success = $false
             }
         }
     }
+    return $success
 }
 
 function Update-PowerShell
 {
+    [CmdletBinding()]
     param (
         [string]$ApiUrl = 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest',
-        [switch]$Force,
-        [switch]$Verbose
+        [switch]$Force
     )
 
     # Validate API URL
@@ -138,7 +147,20 @@ function Update-PowerShell
     }
 
     # Check network connectivity
-    if (-not (Test-Connection 'github.com' -Count 1 -Quiet -TimeoutSeconds 2 -ErrorAction SilentlyContinue))
+    $connectivityOk = $false
+    try
+    {
+        $tcpClient = [System.Net.Sockets.TcpClient]::new()
+        $connectTask = $tcpClient.ConnectAsync('github.com', 443)
+        $connectivityOk = $connectTask.Wait(2000) -and $tcpClient.Connected
+        $tcpClient.Close()
+    }
+    catch
+    {
+        $connectivityOk = $false
+    }
+
+    if (-not $connectivityOk)
     {
         Write-Error "No internet connection to github.com"
         return $false
@@ -149,7 +171,6 @@ function Update-PowerShell
         $latestReleaseInfo = Invoke-RestMethod -Uri $ApiUrl -TimeoutSec 5 -ErrorAction Stop
         $tag = $latestReleaseInfo.tag_name -replace '^[vV]', ''
 
-        # Validate version format
         if (-not ($tag -match '^\d+\.\d+\.\d+'))
         {
             Write-Error "Invalid version format: $tag"
@@ -173,40 +194,51 @@ function Update-PowerShell
 
     Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
-    # Determine package managers by OS
+    if (-not $Script:EnableAutoPackageUpdate -and -not $Force)
+    {
+        Write-Host "Auto package updates are disabled (`$Script:EnableAutoPackageUpdate = `$false). Skipping install step." -ForegroundColor Yellow
+        Write-Host "Run 'Update-PowerShell -Force' to update anyway, or set `$Script:EnableAutoPackageUpdate = `$true in your profile." -ForegroundColor Yellow
+        return
+    }
+
     $packageManagers = @(
-        @{ Name = 'winget'; OS = 'Windows'; Cmd = "winget upgrade 'Microsoft.PowerShell' --accept-source-agreements --accept-package-agreements -h" },
-        @{ Name = 'choco'; OS = 'Windows'; Cmd = 'choco upgrade powershell-core -y' },
-        @{ Name = 'scoop'; OS = 'Windows'; Cmd = 'scoop update powershell' },
-        @{ Name = 'brew'; OS = 'macOS'; Cmd = 'brew upgrade powershell' },
-        @{ Name = 'apt'; OS = 'Linux'; Cmd = 'sudo apt update && sudo apt install powershell -y' },
-        @{ Name = 'dnf'; OS = 'Linux'; Cmd = 'sudo dnf install powershell -y' },
-        @{ Name = 'pacman'; OS = 'Linux'; Cmd = 'sudo pacman -S powershell' },
-        @{ Name = 'zypper'; OS = 'Linux'; Cmd = 'sudo zypper install powershell' }
+        @{ Name = 'winget'; OS = 'Windows'; App = 'winget'; Args = @('upgrade', 'Microsoft.PowerShell', '--accept-source-agreements', '--accept-package-agreements', '-h') },
+        @{ Name = 'choco'; OS = 'Windows'; App = 'choco'; Args = @('upgrade', 'powershell-core', '-y') },
+        @{ Name = 'scoop'; OS = 'Windows'; App = 'scoop'; Args = @('update', 'powershell') },
+        @{ Name = 'brew'; OS = 'macOS'; App = 'brew'; Args = @('upgrade', 'powershell') },
+        @{ Name = 'apt'; OS = 'Linux'; App = 'bash'; Args = @('-c', 'sudo apt update && sudo apt install powershell -y') },
+        @{ Name = 'dnf'; OS = 'Linux'; App = 'sudo'; Args = @('dnf', 'install', 'powershell', '-y') },
+        @{ Name = 'pacman'; OS = 'Linux'; App = 'sudo'; Args = @('pacman', '-S', 'powershell', '--noconfirm') },
+        @{ Name = 'zypper'; OS = 'Linux'; App = 'sudo'; Args = @('zypper', 'install', '-y', 'powershell') }
     ) | Where-Object {
         ($IsWindows -and $_.OS -eq 'Windows') -or
         ($IsMacOS -and $_.OS -eq 'macOS') -or
         ($IsLinux -and $_.OS -eq 'Linux')
+    } | Where-Object {
+        Get-Command $_.Name -ErrorAction SilentlyContinue
     }
 
     $updated = $false
     foreach ($pmConfig in $packageManagers)
     {
-        if (Get-Command $pmConfig.Name -ErrorAction SilentlyContinue)
+        Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
+        try
         {
-            Write-Host "Attempting update with $($pmConfig.Name)..." -ForegroundColor Yellow
-            try
+            $global:LASTEXITCODE = 0
+            & $pmConfig.App @($pmConfig.Args)
+
+            if ($LASTEXITCODE -ne 0)
             {
-                Invoke-Expression $pmConfig.Cmd -ErrorAction Stop
-                Write-Host "PowerShell updated successfully with $($pmConfig.Name)" -ForegroundColor Green
-                $updated = $true
-                break
+                throw "External command failed with exit code $LASTEXITCODE"
             }
-            catch
-            {
-                Write-Warning "Failed to update with $($pmConfig.Name): $_"
-                continue
-            }
+
+            $updated = $true
+            break
+        }
+        catch
+        {
+            Write-Warning "Failed to update with $($pmConfig.Name): $_"
+            continue
         }
     }
 
@@ -222,7 +254,6 @@ function Update-PowerShell
 }
 
 # --- Fast Mounting & Module Loading ---
-# Registry drives only available on Windows
 if ($IsWindows)
 {
     $registryDrives = @{
@@ -241,23 +272,18 @@ if ($IsWindows)
             }
             catch
             {
-                # Silently skip if drive mounting fails
             }
         }
     }
 }
 
-# Direct imports
 @('PSReadLine', 'Terminal-Icons') | ForEach-Object {
     Import-Module $_ -ErrorAction SilentlyContinue
 }
 
 # --- Deferred Maintenance Gate (Non-blocking execution) ---
-
 $tempPath = [System.IO.Path]::GetTempPath()
 $checkFile = Join-Path -Path $tempPath -ChildPath 'ps_update_check.txt'
-
-# Read the last successful update check
 $lastCheck = $null
 
 if (Test-Path $checkFile)
@@ -268,16 +294,12 @@ if (Test-Path $checkFile)
     }
     catch
     {
-        # Corrupted or invalid timestamp; force a new check
         $lastCheck = $null
     }
 }
 
-# Only perform maintenance once every 24 hours
 if (-not $lastCheck -or ((Get-Date) - $lastCheck).TotalHours -ge 24)
 {
-    # Capture the functions as text so they can be rehydrated inside the ThreadJob's
-    # own runspace - a ThreadJob does NOT inherit functions defined in this session.
     $updateModulesDef = "function Update-Modules { ${function:Update-Modules} }"
     $updatePowerShellDef = "function Update-PowerShell { ${function:Update-PowerShell} }"
     $initScript = [scriptblock]::Create("$updateModulesDef`n$updatePowerShellDef")
@@ -286,35 +308,36 @@ if (-not $lastCheck -or ((Get-Date) - $lastCheck).TotalHours -ge 24)
     {
         Start-ThreadJob -InitializationScript $initScript -ArgumentList $checkFile, $Script:EnableAutoPackageUpdate -ScriptBlock {
             param($CheckFile, $AutoPackageUpdate)
-
             try
             {
                 $Script:EnableAutoPackageUpdate = $AutoPackageUpdate
-                Update-Modules
-                Update-PowerShell
+                $modStatus = Update-Modules
+                $pwshStatus = Update-PowerShell
 
-                (Get-Date).ToString('o') |
-                    Set-Content -Path $CheckFile -Encoding UTF8
-                }
-                catch
+                # Only reset the gate timer if maintenance tasks cleanly execute without breaking constraints
+                if ($modStatus -and $pwshStatus)
                 {
-                    # Ignore maintenance failures during profile load
+                    (Get-Date).ToString('o') | Set-Content -Path $CheckFile -Encoding UTF8
                 }
-            } | Out-Null
-        }
-        else
-        {
-            try
+            }
+            catch
             {
-                Update-Modules
-                Update-PowerShell
-
-                (Get-Date).ToString('o') |
-                    Set-Content -Path $checkFile -Encoding UTF8
+            }
+        } | Out-Null
+    }
+    else
+    {
+        try
+        {
+            $modStatus = Update-Modules
+            $pwshStatus = Update-PowerShell
+            if ($modStatus -and $pwshStatus)
+            {
+                (Get-Date).ToString('o') | Set-Content -Path $checkFile -Encoding UTF8
+            }
         }
         catch
         {
-            # Ignore maintenance failures during profile load
         }
     }
 }
@@ -330,7 +353,6 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
     {
         ''
     }
-
     if ($themePath -and (Test-Path $themePath))
     {
         oh-my-posh init pwsh --config $themePath | Invoke-Expression
@@ -342,7 +364,6 @@ if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
 }
 
 # --- PSReadLine Configurations ---
-# Note: $PSStyle requires PowerShell 7.2+ (enforced by #requires above).
 $PSReadLineOptions = @{
     ContinuationPrompt            = ' '
     Colors                        = @{
@@ -383,16 +404,30 @@ $PSReadLineOptions = @{
 
 if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)
 {
-    $psrlModule = Get-Module PSReadLine
-    if ($psrlModule -and $psrlModule.Version -ge [Version]'2.2.0')
+    try
     {
-        Set-PSReadLineOption @PSReadLineOptions
+        $psrlModule = Get-Module PSReadLine
+        if ($psrlModule -and $psrlModule.Version -ge [Version]'2.2.0')
+        {
+            Set-PSReadLineOption @PSReadLineOptions
+        }
+        else
+        {
+            $reducedOptions = $PSReadLineOptions.Clone()
+            $reducedOptions.Remove('PredictionViewStyle')
+            Set-PSReadLineOption @reducedOptions
+        }
     }
-    else
+    catch
     {
-        $reducedOptions = $PSReadLineOptions.Clone()
-        $reducedOptions.Remove('PredictionViewStyle')
-        Set-PSReadLineOption @reducedOptions
+        # Fallback for redirected streams or virtual terminal rendering limitations
+        try
+        {
+            Set-PSReadLineOption -PredictionSource None
+        }
+        catch
+        {
+        }
     }
 }
 
@@ -400,25 +435,19 @@ if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)
 Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
 Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
 
-# Out-GridView History Search (Windows only)
 if ($IsWindows -and (Get-Command Out-GridView -ErrorAction SilentlyContinue))
 {
-    Set-PSReadLineKeyHandler -Key F7 `
-        -BriefDescription History `
-        -LongDescription 'Show command history' `
-        -ScriptBlock {
+    Set-PSReadLineKeyHandler -Key F7 -BriefDescription History -LongDescription 'Show command history' -ScriptBlock {
         [string] $pattern = $null
         [int]    $cursor = 0
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$pattern, [ref]$cursor)
-
         if ($pattern)
         {
             $pattern = [regex]::Escape($pattern)
         }
 
         $history = [System.Collections.ArrayList]@(
-            $last = ''
-            $lines = ''
+            $last = ''; $lines = ''
             foreach ($line in [System.IO.File]::ReadLines((Get-PSReadLineOption).HistorySavePath))
             {
                 if ($line.EndsWith('`'))
@@ -442,13 +471,11 @@ if ($IsWindows -and (Get-Command Out-GridView -ErrorAction SilentlyContinue))
                 {
                     if ($line -ne $last)
                     {
-                        $history.Add($line) | Out-Null
-                        $last = $line
+                        $history.Add($line) | Out-Null; $last = $line
                     }
                 }
             }
         )
-
         $selected = $history | Out-GridView -Title History -OutputMode Single
         if ($null -ne $selected)
         {
@@ -458,60 +485,34 @@ if ($IsWindows -and (Get-Command Out-GridView -ErrorAction SilentlyContinue))
     }
 }
 
-# Git command auto-correction
 Set-PSReadLineKeyHandler -Key Tab -BriefDescription "GitAutoCorrection" -LongDescription "Auto-correct git subcommands" -ScriptBlock {
     param($key, $arg)
-
-    $buffer = $null
-    $cursor = 0
-    $ast = $null
-    $tokens = @()
-    $parseErrors = @()
-
-    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState(
-        [ref]$buffer, [ref]$cursor,
-        [ref]$ast, [ref]$tokens, [ref]$parseErrors
-    )
+    $buffer = $null; $cursor = 0; $ast = $null; $tokens = @(); $parseErrors = @()
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$buffer, [ref]$cursor, [ref]$ast, [ref]$tokens, [ref]$parseErrors)
 
     $CommandAst = $ast.Find({
             $args[0] -is [System.Management.Automation.Language.CommandAst] -and
-            $args[0].Extent.StartOffset -le $cursor -and
-            $args[0].Extent.EndOffset -gt $cursor
+            $args[0].Extent.StartOffset -le $cursor -and $args[0].Extent.EndOffset -gt $cursor
         }, $true)
 
-    if (-not $CommandAst)
-    {
-        [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
-        return
-    }
-
-    $CommandName = $CommandAst.CommandElements[0].Value
-    if ($CommandName -ne 'git')
-    {
-        [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
-        return
-    }
-
-    if ($CommandAst.CommandElements.Count -lt 2)
+    if (-not $CommandAst -or $CommandAst.CommandElements[0].Value -ne 'git' -or $CommandAst.CommandElements.Count -lt 2)
     {
         [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
         return
     }
 
     $gitCmd = $CommandAst.CommandElements[1].Extent
-    switch ($gitCmd.Text)
+    if ($gitCmd.Text -eq 'cmt')
     {
-        'cmt'
-        {
-            [Microsoft.PowerShell.PSConsoleReadLine]::Replace($gitCmd.StartOffset, $gitCmd.EndOffset - $gitCmd.StartOffset, 'commit')
-        }
+        [Microsoft.PowerShell.PSConsoleReadLine]::Replace($gitCmd.StartOffset, $gitCmd.EndOffset - $gitCmd.StartOffset, 'commit')
+    }
+    else
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
     }
 }
 
-Set-PSReadLineKeyHandler -Key RightArrow `
-    -BriefDescription ForwardCharAndAcceptNextSuggestionWord `
-    -LongDescription "Move cursor right or accept the next word in suggestion when at the end of current line" `
-    -ScriptBlock {
+Set-PSReadLineKeyHandler -Key RightArrow -BriefDescription ForwardCharAndAcceptNextSuggestionWord -LongDescription "Move cursor right or accept suggestion" -ScriptBlock {
     param($key, $arg)
     $line = $null; $cursor = $null
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
@@ -525,22 +526,10 @@ Set-PSReadLineKeyHandler -Key RightArrow `
     }
 }
 
-Set-PSReadLineKeyHandler -Key Alt+a `
-    -BriefDescription SelectCommandArguments `
-    -LongDescription "Set current selection to next command argument" `
-    -ScriptBlock {
+Set-PSReadLineKeyHandler -Key Alt+a -BriefDescription SelectCommandArguments -LongDescription "Select next command argument" -ScriptBlock {
     param($key, $arg)
-
-    $line = $null
-    $cursor = 0
-    $ast = $null
-    $tokens = @()
-    $parseErrors = @()
-
-    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState(
-        [ref]$line, [ref]$cursor,
-        [ref]$ast, [ref]$tokens, [ref]$parseErrors
-    )
+    $line = $null; $cursor = 0; $ast = $null; $tokens = @(); $parseErrors = @()
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor, [ref]$ast, [ref]$tokens, [ref]$parseErrors)
 
     $asts = $ast.FindAll({
             $args[0] -is [System.Management.Automation.Language.ExpressionAst] -and
@@ -550,10 +539,8 @@ Set-PSReadLineKeyHandler -Key Alt+a `
 
     if ($asts.Count -eq 0)
     {
-        [Microsoft.PowerShell.PSConsoleReadLine]::Ding()
-        return
+        [Microsoft.PowerShell.PSConsoleReadLine]::Ding(); return
     }
-
     $nextAst = if ($null -ne $arg)
     {
         $asts[$arg - 1]
@@ -565,8 +552,7 @@ Set-PSReadLineKeyHandler -Key Alt+a `
         {
             if ($astItem.Extent.StartOffset -ge $cursor)
             {
-                $found = $astItem
-                break
+                $found = $astItem; break
             }
         }
         if ($null -eq $found)
@@ -579,49 +565,36 @@ Set-PSReadLineKeyHandler -Key Alt+a `
         }
     }
 
-    $startOffsetAdjustment = 0
-    $endOffsetAdjustment = 0
-    if ($nextAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-        $nextAst.StringConstantType -ne [System.Management.Automation.Language.StringConstantType]::BareWord)
+    $startOffsetAdjustment = 0; $endOffsetAdjustment = 0
+    if ($nextAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $nextAst.StringConstantType -ne [System.Management.Automation.Language.StringConstantType]::BareWord)
     {
-        $startOffsetAdjustment = 1
-        $endOffsetAdjustment = 2
+        $startOffsetAdjustment = 1; $endOffsetAdjustment = 2
     }
-
     [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($nextAst.Extent.StartOffset + $startOffsetAdjustment)
     [Microsoft.PowerShell.PSConsoleReadLine]::SetMark($null, $null)
     [Microsoft.PowerShell.PSConsoleReadLine]::SelectForwardChar($null, ($nextAst.Extent.EndOffset - $nextAst.Extent.StartOffset) - $endOffsetAdjustment)
 }
 
-Set-PSReadLineKeyHandler -Chord 'Alt+x' `
-    -BriefDescription ToUnicodeChar `
-    -LongDescription "Transform Unicode code point into a UTF-16 encoded string" `
-    -ScriptBlock {
+Set-PSReadLineKeyHandler -Chord 'Alt+x' -BriefDescription ToUnicodeChar -LongDescription "Transform Unicode point" -ScriptBlock {
     $buffer = $null; $cursor = 0
     [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref] $buffer, [ref] $cursor)
     if ($cursor -lt 4)
     {
         return
     }
-
     $number = 0
-    $isNumber = [int]::TryParse($buffer.Substring($cursor - 4, 4), [System.Globalization.NumberStyles]::AllowHexSpecifier, $null, [ref] $number)
-    if (-not $isNumber)
+    if ([int]::TryParse($buffer.Substring($cursor - 4, 4), [System.Globalization.NumberStyles]::AllowHexSpecifier, $null, [ref] $number))
     {
-        return
+        try
+        {
+            $unicode = [char]::ConvertFromUtf32($number)
+            [Microsoft.PowerShell.PSConsoleReadLine]::Delete($cursor - 4, 4)
+            [Microsoft.PowerShell.PSConsoleReadLine]::Insert($unicode)
+        }
+        catch
+        {
+        }
     }
-
-    try
-    {
-        $unicode = [char]::ConvertFromUtf32($number)
-    }
-    catch
-    {
-        return
-    }
-
-    [Microsoft.PowerShell.PSConsoleReadLine]::Delete($cursor - 4, 4)
-    [Microsoft.PowerShell.PSConsoleReadLine]::Insert($unicode)
 }
 
 Set-PSReadLineKeyHandler -Chord Shift+Enter -Function AddLine
@@ -631,16 +604,29 @@ Set-PSReadLineKeyHandler -Chord Enter -Function AcceptLine
 # --- Argument Completers ---
 Register-ArgumentCompleter -Native -CommandName 'git', 'npm', 'deno' -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
-    $completions = @{
-        'git'  = @('status', 'add', 'commit', 'push', 'pull', 'clone', 'diff', 'log', 'checkout')
-        'npm'  = @('install', 'start', 'run', 'test', 'build')
-        'deno' = @('run', 'compile', 'bundle', 'test', 'lint', 'fmt', 'cache', 'doc', 'upgrade')
+
+    if (-not $commandAst -or $commandAst.CommandElements.Count -eq 0)
+    {
+        return
     }
-    $command = $commandAst.CommandElements[0].Value.ToLower()
+
+    $firstElement = $commandAst.CommandElements[0]
+    if ($null -eq $firstElement -or $firstElement.GetType().Name -ne 'StringConstantExpressionAst')
+    {
+        return
+    }
+
+    $command = $firstElement.Value.ToLowerInvariant()
+    $completions = @{
+        git  = @('status', 'checkout', 'commit', 'push', 'pull')
+        npm  = @('install', 'run', 'test', 'start')
+        deno = @('run', 'test', 'install')
+    }
+
     if ($completions.ContainsKey($command))
     {
-        $completions[$command] | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        $completions[$command] | ForEach-Object {
+            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     }
 }
@@ -655,7 +641,6 @@ Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock {
     }
 }
 
-# Windows-only completer
 if ($IsWindows)
 {
     Register-ArgumentCompleter -Native -CommandName winget -ScriptBlock {
@@ -674,16 +659,11 @@ $editors = if ($IsWindows)
 {
     @('code', 'nvim', 'vim', 'notepad++', 'notepad')
 }
-elseif ($IsMacOS)
-{
-    @('code', 'nvim', 'vim', 'nano')
-}
 else
 {
     @('code', 'nvim', 'vim', 'nano')
 }
-
-$EDITOR = 'nano'  # Safe default for all platforms
+$EDITOR = 'nano'
 foreach ($editor in $editors)
 {
     if ($null -ne (Get-Command $editor -ErrorAction SilentlyContinue -CommandType Application))
@@ -692,8 +672,6 @@ foreach ($editor in $editors)
         break
     }
 }
-
-# Export to the environment so external tools (git, gh, crontab, etc.) pick the same editor.
 $env:EDITOR = $EDITOR
 $env:VISUAL = $EDITOR
 
@@ -701,13 +679,10 @@ $env:VISUAL = $EDITOR
 function Open-Item
 {
     param([string]$Path)
-
     if (-not (Test-Path $Path))
     {
-        Write-Error "Path not found: $Path"
-        return
+        Write-Error "Path not found: $Path"; return
     }
-
     if ($IsWindows)
     {
         Invoke-Item $Path
@@ -727,31 +702,24 @@ function Edit-Profile
 {
     & $EDITOR $PROFILE
 }
-
 function Sync-Profile
 {
     try
     {
-        . $PROFILE
-        Write-Output 'Profile reloaded successfully.'
+        . $PROFILE; Write-Output 'Profile reloaded successfully.'
     }
     catch
     {
         Write-Error $_
     }
 }
-
 function Get-GitWhoami
 {
     if (Get-Command git -ErrorAction SilentlyContinue)
     {
-        [PSCustomObject]@{
-            Author = (git config --get user.name)
-            Email  = (git config --get user.email)
-        }
+        [PSCustomObject]@{ Author = (git config --get user.name); Email = (git config --get user.email) }
     }
 }
-
 function gcom
 {
     param([string]$Message)
@@ -784,22 +752,18 @@ function ll
 {
     Get-ChildItem @args | Format-Table -AutoSize
 }
-
 function la
 {
     Get-ChildItem -Name @args
 }
-
 function lh
 {
     Get-ChildItem @args | Format-Wide -AutoSize
 }
-
 function lv
 {
     Get-ChildItem @args | Format-List
 }
-
 function lb
 {
     Get-ChildItem @args | Out-Host
