@@ -194,13 +194,7 @@ function Update-PowerShell
 
     Write-Host "Update available: v$currentVersion → v$latestVersion" -ForegroundColor Cyan
 
-    if (-not $Script:EnableAutoPackageUpdate -and -not $Force)
-    {
-        Write-Host "Auto package updates are disabled (`$Script:EnableAutoPackageUpdate = `$false). Skipping install step." -ForegroundColor Yellow
-        Write-Host "Run 'Update-PowerShell -Force' to update anyway, or set `$Script:EnableAutoPackageUpdate = `$true in your profile." -ForegroundColor Yellow
-        return
-    }
-
+    # Determine package managers by OS
     $packageManagers = @(
         @{ Name = 'winget'; OS = 'Windows'; App = 'winget'; Args = @('upgrade', 'Microsoft.PowerShell', '--accept-source-agreements', '--accept-package-agreements', '-h') },
         @{ Name = 'choco'; OS = 'Windows'; App = 'choco'; Args = @('upgrade', 'powershell-core', '-y') },
@@ -272,6 +266,7 @@ if ($IsWindows)
             }
             catch
             {
+                # Silently skip if drive mounting fails
             }
         }
     }
@@ -314,30 +309,28 @@ if (-not $lastCheck -or ((Get-Date) - $lastCheck).TotalHours -ge 24)
                 $modStatus = Update-Modules
                 $pwshStatus = Update-PowerShell
 
-                # Only reset the gate timer if maintenance tasks cleanly execute without breaking constraints
-                if ($modStatus -and $pwshStatus)
-                {
-                    (Get-Date).ToString('o') | Set-Content -Path $CheckFile -Encoding UTF8
+                (Get-Date).ToString('o') |
+                    Set-Content -Path $CheckFile -Encoding UTF8
                 }
-            }
-            catch
-            {
-            }
-        } | Out-Null
-    }
-    else
-    {
-        try
+                catch
+                {
+                    # Ignore maintenance failures during profile load
+                }
+            } | Out-Null
+        }
+        else
         {
-            $modStatus = Update-Modules
-            $pwshStatus = Update-PowerShell
-            if ($modStatus -and $pwshStatus)
+            try
             {
-                (Get-Date).ToString('o') | Set-Content -Path $checkFile -Encoding UTF8
-            }
+                Update-Modules
+                Update-PowerShell
+
+                (Get-Date).ToString('o') |
+                    Set-Content -Path $checkFile -Encoding UTF8
         }
         catch
         {
+            # Ignore maintenance failures during profile load
         }
     }
 }
@@ -404,30 +397,16 @@ $PSReadLineOptions = @{
 
 if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)
 {
-    try
+    $psrlModule = Get-Module PSReadLine
+    if ($psrlModule -and $psrlModule.Version -ge [Version]'2.2.0')
     {
-        $psrlModule = Get-Module PSReadLine
-        if ($psrlModule -and $psrlModule.Version -ge [Version]'2.2.0')
-        {
-            Set-PSReadLineOption @PSReadLineOptions
-        }
-        else
-        {
-            $reducedOptions = $PSReadLineOptions.Clone()
-            $reducedOptions.Remove('PredictionViewStyle')
-            Set-PSReadLineOption @reducedOptions
-        }
+        Set-PSReadLineOption @PSReadLineOptions
     }
-    catch
+    else
     {
-        # Fallback for redirected streams or virtual terminal rendering limitations
-        try
-        {
-            Set-PSReadLineOption -PredictionSource None
-        }
-        catch
-        {
-        }
+        $reducedOptions = $PSReadLineOptions.Clone()
+        $reducedOptions.Remove('PredictionViewStyle')
+        Set-PSReadLineOption @reducedOptions
     }
 }
 
@@ -471,7 +450,8 @@ if ($IsWindows -and (Get-Command Out-GridView -ErrorAction SilentlyContinue))
                 {
                     if ($line -ne $last)
                     {
-                        $history.Add($line) | Out-Null; $last = $line
+                        $history.Add($line) | Out-Null
+                        $last = $line
                     }
                 }
             }
@@ -539,7 +519,8 @@ Set-PSReadLineKeyHandler -Key Alt+a -BriefDescription SelectCommandArguments -Lo
 
     if ($asts.Count -eq 0)
     {
-        [Microsoft.PowerShell.PSConsoleReadLine]::Ding(); return
+        [Microsoft.PowerShell.PSConsoleReadLine]::Ding()
+        return
     }
     $nextAst = if ($null -ne $arg)
     {
@@ -552,7 +533,8 @@ Set-PSReadLineKeyHandler -Key Alt+a -BriefDescription SelectCommandArguments -Lo
         {
             if ($astItem.Extent.StartOffset -ge $cursor)
             {
-                $found = $astItem; break
+                $found = $astItem
+                break
             }
         }
         if ($null -eq $found)
@@ -681,7 +663,8 @@ function Open-Item
     param([string]$Path)
     if (-not (Test-Path $Path))
     {
-        Write-Error "Path not found: $Path"; return
+        Write-Error "Path not found: $Path"
+        return
     }
     if ($IsWindows)
     {
@@ -706,7 +689,8 @@ function Sync-Profile
 {
     try
     {
-        . $PROFILE; Write-Output 'Profile reloaded successfully.'
+        . $PROFILE
+        Write-Output 'Profile reloaded successfully.'
     }
     catch
     {
@@ -717,29 +701,25 @@ function Get-GitWhoami
 {
     if (Get-Command git -ErrorAction SilentlyContinue)
     {
-        [PSCustomObject]@{ Author = (git config --get user.name); Email = (git config --get user.email) }
+        [PSCustomObject]@{
+            Author = (git config --get user.name)
+            Email  = (git config --get user.email)
+        }
     }
 }
+
 function gcom
 {
     param([string]$Message)
     if (Get-Command git -ErrorAction SilentlyContinue)
     {
-        git add .
-        git commit -m $Message
-    }
+        git add .; git commit -m $Message
+    } 
 }
-
-function lazyg
-{
-    param([string]$Message)
-    if (Get-Command git -ErrorAction SilentlyContinue)
+function lazyg param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
     {
-        git add .
-        git commit -m $Message
-        git push
-    }
-}
+        git add .; git commit -m $Message; git push
+    } }
 
 Set-Alias open Open-Item
 Set-Alias edit $EDITOR
