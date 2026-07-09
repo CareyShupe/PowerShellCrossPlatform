@@ -714,12 +714,15 @@ function gcom
     if (Get-Command git -ErrorAction SilentlyContinue)
     {
         git add .; git commit -m $Message
-    } 
+    }
 }
-function lazyg param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
-    {
-        git add .; git commit -m $Message; git push
-    } }
+function lazyg
+{
+    param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
+        {
+            git add .; git commit -m $Message; git push
+        } }
+}
 
 Set-Alias open Open-Item
 Set-Alias edit $EDITOR
