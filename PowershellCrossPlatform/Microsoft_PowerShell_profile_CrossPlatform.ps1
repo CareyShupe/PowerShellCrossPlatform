@@ -176,7 +176,7 @@ function Update-PowerShell
     {
         Write-Host "Auto package updates are disabled (`$Script:EnableAutoPackageUpdate = `$false). Skipping install step." -ForegroundColor Yellow
         Write-Host "Run 'Update-PowerShell -Force' to update anyway, or set `$Script:EnableAutoPackageUpdate = `$true in your profile." -ForegroundColor Yellow
-        return $false
+        return
     }
 
     <#
@@ -252,7 +252,6 @@ if ($IsWindows)
             }
             catch
             {
-                # Silently skip if drive mounting fails
             }
         }
     }
@@ -281,311 +280,317 @@ Start-ThreadJob `
         Update-Modules
         Update-PowerShell
 
-        (Get-Date).ToString('o') |
-            Set-Content -Path $CheckFile -Encoding UTF8
-        }
-        catch
+        # Only reset the gate timer if maintenance tasks cleanly execute without breaking constraints
+        if ($modStatus -and $pwshStatus)
         {
-            # Ignore maintenance failures during profile load
-        }
-    } | Out-Null
-
-    # --- Prompt Initialization ---
-    if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
-    {
-        $themePath = if ($env:POSH_THEMES_PATH)
-        {
-            Join-Path -Path $env:POSH_THEMES_PATH -ChildPath 'jandedobbeleer.omp.json'
-        }
-        else
-        {
-            ''
-        }
-
-        if ($themePath -and (Test-Path $themePath))
-        {
-            oh-my-posh init pwsh --config $themePath | Invoke-Expression
-        }
-        else
-        {
-            oh-my-posh init pwsh | Invoke-Expression
+            (Get-Date).ToString('o') | Set-Content -Path $CheckFile -Encoding UTF8
         }
     }
-
-    # --- PSReadLine Configurations ---
-    # Note: $PSStyle requires PowerShell 7.2+ (enforced by #requires above).
-    $PSReadLineOptions = @{
-        ContinuationPrompt            = ' '
-        Colors                        = @{
-            Command            = $PSStyle.Foreground.BrightYellow
-            Comment            = $PSStyle.Foreground.BrightGreen
-            ContinuationPrompt = $PSStyle.Foreground.BrightWhite
-            Default            = $PSStyle.Foreground.BrightWhite
-            Emphasis           = $PSStyle.Foreground.Cyan
-            Error              = $PSStyle.Foreground.Red
-            Keyword            = $PSStyle.Foreground.Magenta
-            Member             = $PSStyle.Foreground.Cyan
-            Number             = $PSStyle.Foreground.Magenta
-            Operator           = $PSStyle.Foreground.White
-            Parameter          = $PSStyle.Foreground.White
-            Selection          = $PSStyle.Foreground.White + $PSStyle.Background.Cyan
-            String             = $PSStyle.Foreground.Yellow
-            Type               = $PSStyle.Foreground.Blue
-            Variable           = $PSStyle.Foreground.Cyan
+    catch
+    {
+    }
+} | Out-Null
+}
+else
+{
+    try
+    {
+        $modStatus = Update-Modules
+        $pwshStatus = Update-PowerShell
+        if ($modStatus -and $pwshStatus)
+        {
+            (Get-Date).ToString('o') | Set-Content -Path $checkFile -Encoding UTF8
         }
-        PredictionSource              = "HistoryAndPlugin"
-        PredictionViewStyle           = "ListView"
-        EditMode                      = "Emacs"
-        HistorySaveStyle              = "SaveIncrementally"
-        HistoryNoDuplicates           = $true
-        HistorySearchCursorMovesToEnd = $true
-        ShowToolTips                  = $true
-        MaximumHistoryCount           = 10000
-        BellStyle                     = "None"
-        AddToHistoryHandler           = {
-            param($line)
-            if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#')
+    }
+    catch
+    {
+    }
+} | Out-Null
+
+# --- Prompt Initialization ---
+if (Get-Command oh-my-posh -ErrorAction SilentlyContinue)
+{
+    $themePath = if ($env:POSH_THEMES_PATH)
+    {
+        Join-Path -Path $env:POSH_THEMES_PATH -ChildPath 'jandedobbeleer.omp.json'
+    }
+    else
+    {
+        ''
+    }
+    if ($themePath -and (Test-Path $themePath))
+    {
+        oh-my-posh init pwsh --config $themePath | Invoke-Expression
+    }
+    else
+    {
+        oh-my-posh init pwsh | Invoke-Expression
+    }
+}
+
+# --- PSReadLine Configurations ---
+$PSReadLineOptions = @{
+    ContinuationPrompt            = ' '
+    Colors                        = @{
+        Command            = $PSStyle.Foreground.BrightYellow
+        Comment            = $PSStyle.Foreground.BrightGreen
+        ContinuationPrompt = $PSStyle.Foreground.BrightWhite
+        Default            = $PSStyle.Foreground.BrightWhite
+        Emphasis           = $PSStyle.Foreground.Cyan
+        Error              = $PSStyle.Foreground.Red
+        Keyword            = $PSStyle.Foreground.Magenta
+        Member             = $PSStyle.Foreground.Cyan
+        Number             = $PSStyle.Foreground.Magenta
+        Operator           = $PSStyle.Foreground.White
+        Parameter          = $PSStyle.Foreground.White
+        Selection          = $PSStyle.Foreground.White + $PSStyle.Background.Cyan
+        String             = $PSStyle.Foreground.Yellow
+        Type               = $PSStyle.Foreground.Blue
+        Variable           = $PSStyle.Foreground.Cyan
+    }
+    PredictionSource              = "HistoryAndPlugin"
+    PredictionViewStyle           = "ListView"
+    EditMode                      = "Emacs"
+    HistorySaveStyle              = "SaveIncrementally"
+    HistoryNoDuplicates           = $true
+    HistorySearchCursorMovesToEnd = $true
+    ShowToolTips                  = $true
+    MaximumHistoryCount           = 10000
+    BellStyle                     = "None"
+    AddToHistoryHandler           = {
+        param($line)
+        if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^\s*#')
+        {
+            return
+        }
+        $line
+    }
+}
+
+if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)
+{
+    $psrlModule = Get-Module PSReadLine
+    if ($psrlModule -and $psrlModule.Version -ge [Version]'2.2.0')
+    {
+        Set-PSReadLineOption @PSReadLineOptions
+    }
+    else
+    {
+        $reducedOptions = $PSReadLineOptions.Clone()
+        $reducedOptions.Remove('PredictionViewStyle')
+        Set-PSReadLineOption @reducedOptions
+    }
+}
+catch
+{
+    # Fallback for redirected streams or virtual terminal rendering limitations
+    try
+    {
+        Set-PSReadLineOption -PredictionSource None
+    }
+    catch
+    {
+    }
+}
+}
+
+# --- PSReadLine Key Handlers ---
+Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
+Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
+
+if ($IsWindows -and (Get-Command Out-GridView -ErrorAction SilentlyContinue))
+{
+    Set-PSReadLineKeyHandler -Key F7 -BriefDescription History -LongDescription 'Show command history' -ScriptBlock {
+        [string] $pattern = $null
+        [int]    $cursor = 0
+        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$pattern, [ref]$cursor)
+        if ($pattern)
+        {
+            $pattern = [regex]::Escape($pattern)
+        }
+
+        $history = [System.Collections.ArrayList]@(
+            $last = ''; $lines = ''
+            foreach ($line in [System.IO.File]::ReadLines((Get-PSReadLineOption).HistorySavePath))
             {
-                return
-            }
-            $line
-        }
-    }
-
-    if (Get-Command Set-PSReadLineOption -ErrorAction SilentlyContinue)
-    {
-        $psrlModule = Get-Module PSReadLine
-        if ($psrlModule -and $psrlModule.Version -ge [Version]'2.2.0')
-        {
-            Set-PSReadLineOption @PSReadLineOptions
-        }
-        else
-        {
-            $reducedOptions = $PSReadLineOptions.Clone()
-            $reducedOptions.Remove('PredictionViewStyle')
-            Set-PSReadLineOption @reducedOptions
-        }
-    }
-
-    # --- PSReadLine Key Handlers ---
-    Set-PSReadLineKeyHandler -Key UpArrow -Function HistorySearchBackward
-    Set-PSReadLineKeyHandler -Key DownArrow -Function HistorySearchForward
-
-    # Out-GridView History Search (Windows only)
-    if ($IsWindows -and (Get-Command Out-GridView -ErrorAction SilentlyContinue))
-    {
-        Set-PSReadLineKeyHandler -Key F7 `
-            -BriefDescription History `
-            -LongDescription 'Show command history' `
-            -ScriptBlock {
-            [string] $pattern = $null
-            [int]    $cursor = 0
-            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$pattern, [ref]$cursor)
-
-            if ($pattern)
-            {
-                $pattern = [regex]::Escape($pattern)
-            }
-
-            $history = [System.Collections.ArrayList]@(
-                $last = ''
-                $lines = ''
-                foreach ($line in [System.IO.File]::ReadLines((Get-PSReadLineOption).HistorySavePath))
+                if ($line.EndsWith('`'))
                 {
-                    if ($line.EndsWith('`'))
+                    $line = $line.Substring(0, $line.Length - 1)
+                    $lines = if ($lines)
                     {
-                        $line = $line.Substring(0, $line.Length - 1)
-                        $lines = if ($lines)
-                        {
-                            "$lines`n$line"
-                        }
-                        else
-                        {
-                            $line
-                        }
-                        continue
+                        "$lines`n$line"
                     }
-                    if ($lines)
+                    else
                     {
-                        $line = "$lines`n$line"; $lines = ''
+                        $line
                     }
-                    if (-not $pattern -or $line -match $pattern)
+                    continue
+                }
+                if ($lines)
+                {
+                    $line = "$lines`n$line"; $lines = ''
+                }
+                if (-not $pattern -or $line -match $pattern)
+                {
+                    if ($line -ne $last)
                     {
-                        if ($line -ne $last)
-                        {
-                            $history.Add($line) | Out-Null
-                            $last = $line
-                        }
+                        $history.Add($line) | Out-Null; $last = $line
                     }
                 }
-            )
-
-            $selected = $history | Out-GridView -Title History -OutputMode Single
-            if ($null -ne $selected)
-            {
-                [Microsoft.PowerShell.PSConsoleReadLine]::DeleteLine()
-                [Microsoft.PowerShell.PSConsoleReadLine]::Insert($selected)
             }
-        }
-    }
-
-    # Git command auto-correction
-    Set-PSReadLineKeyHandler -Key Tab -BriefDescription "GitAutoCorrection" -LongDescription "Auto-correct git subcommands" -ScriptBlock {
-        param($key, $arg)
-
-        $buffer = $null
-        $cursor = 0
-        $ast = $null
-        $tokens = @()
-        $parseErrors = @()
-
-        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState(
-            [ref]$buffer, [ref]$cursor,
-            [ref]$ast, [ref]$tokens, [ref]$parseErrors
         )
-
-        $CommandAst = $ast.Find({
-                $args[0] -is [System.Management.Automation.Language.CommandAst] -and
-                $args[0].Extent.StartOffset -le $cursor -and
-                $args[0].Extent.EndOffset -gt $cursor
-            }, $true)
-
-        if (-not $CommandAst)
+        $selected = $history | Out-GridView -Title History -OutputMode Single
+        if ($null -ne $selected)
         {
-            [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
-            return
-        }
-
-        $CommandName = $CommandAst.CommandElements[0].Value
-        if ($CommandName -ne 'git')
-        {
-            [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
-            return
-        }
-
-        if ($CommandAst.CommandElements.Count -lt 2)
-        {
-            [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
-            return
-        }
-
-        $gitCmd = $CommandAst.CommandElements[1].Extent
-        switch ($gitCmd.Text)
-        {
-            'cmt'
-            {
-                [Microsoft.PowerShell.PSConsoleReadLine]::Replace($gitCmd.StartOffset, $gitCmd.EndOffset - $gitCmd.StartOffset, 'commit')
-            }
-            default
-            {
-                [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
-            }
+            [Microsoft.PowerShell.PSConsoleReadLine]::DeleteLine()
+            [Microsoft.PowerShell.PSConsoleReadLine]::Insert($selected)
         }
     }
+}
 
-    Set-PSReadLineKeyHandler -Key RightArrow `
-        -BriefDescription ForwardCharAndAcceptNextSuggestionWord `
-        -LongDescription "Move cursor right or accept the next word in suggestion when at the end of current line" `
-        -ScriptBlock {
-        param($key, $arg)
-        $line = $null; $cursor = $null
-        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-        if ($cursor -lt $line.Length)
+# Git command auto-correction
+Set-PSReadLineKeyHandler -Key Tab -BriefDescription "GitAutoCorrection" -LongDescription "Auto-correct git subcommands" -ScriptBlock {
+    param($key, $arg)
+
+    $buffer = $null
+    $cursor = 0
+    $ast = $null
+    $tokens = @()
+    $parseErrors = @()
+
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState(
+        [ref]$buffer, [ref]$cursor,
+        [ref]$ast, [ref]$tokens, [ref]$parseErrors
+    )
+
+    $CommandAst = $ast.Find({
+            $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+            $args[0].Extent.StartOffset -le $cursor -and
+            $args[0].Extent.EndOffset -gt $cursor
+        }, $true)
+
+    if (-not $CommandAst)
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
+        return
+    }
+
+    $CommandName = $CommandAst.CommandElements[0].Value
+    if ($CommandName -ne 'git')
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
+        return
+    }
+
+    if ($CommandAst.CommandElements.Count -lt 2)
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
+        return
+    }
+
+    $gitCmd = $CommandAst.CommandElements[1].Extent
+    switch ($gitCmd.Text)
+    {
+        'cmt'
         {
-            [Microsoft.PowerShell.PSConsoleReadLine]::ForwardChar($key, $arg)
+            [Microsoft.PowerShell.PSConsoleReadLine]::Replace($gitCmd.StartOffset, $gitCmd.EndOffset - $gitCmd.StartOffset, 'commit')
+        }
+        default
+        {
+            [Microsoft.PowerShell.PSConsoleReadLine]::Complete()
+        }
+    }
+}
+
+Set-PSReadLineKeyHandler -Key RightArrow -BriefDescription ForwardCharAndAcceptNextSuggestionWord -LongDescription "Move cursor right or accept suggestion" -ScriptBlock {
+    param($key, $arg)
+    $line = $null; $cursor = $null
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+    if ($cursor -lt $line.Length)
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::ForwardChar($key, $arg)
+    }
+    else
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptNextSuggestionWord($key, $arg)
+    }
+}
+
+Set-PSReadLineKeyHandler -Key Alt+a `
+    -BriefDescription SelectCommandArguments `
+    -LongDescription "Set current selection to next command argument" `
+    -ScriptBlock {
+    param($key, $arg)
+
+    $line = $null
+    $cursor = 0
+    $ast = $null
+    $tokens = @()
+    $parseErrors = @()
+
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState(
+        [ref]$line, [ref]$cursor,
+        [ref]$ast, [ref]$tokens, [ref]$parseErrors
+    )
+
+    $asts = $ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.ExpressionAst] -and
+            $args[0].Parent -is [System.Management.Automation.Language.CommandAst] -and
+            $args[0].Extent.StartOffset -ne $args[0].Parent.Extent.StartOffset
+        }, $true)
+
+    if ($asts.Count -eq 0)
+    {
+        [Microsoft.PowerShell.PSConsoleReadLine]::Ding(); return
+    }
+    $nextAst = if ($null -ne $arg)
+    {
+        $asts[$arg - 1]
+    }
+    else
+    {
+        $found = $null
+        foreach ($astItem in $asts)
+        {
+            if ($astItem.Extent.StartOffset -ge $cursor)
+            {
+                $found = $astItem; break
+            }
+        }
+        if ($null -eq $found)
+        {
+            $asts[0]
         }
         else
         {
-            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptNextSuggestionWord($key, $arg)
+            $found
         }
     }
 
-    Set-PSReadLineKeyHandler -Key Alt+a `
-        -BriefDescription SelectCommandArguments `
-        -LongDescription "Set current selection to next command argument" `
-        -ScriptBlock {
-        param($key, $arg)
-
-        $line = $null
-        $cursor = 0
-        $ast = $null
-        $tokens = @()
-        $parseErrors = @()
-
-        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState(
-            [ref]$line, [ref]$cursor,
-            [ref]$ast, [ref]$tokens, [ref]$parseErrors
-        )
-
-        $asts = $ast.FindAll({
-                $args[0] -is [System.Management.Automation.Language.ExpressionAst] -and
-                $args[0].Parent -is [System.Management.Automation.Language.CommandAst] -and
-                $args[0].Extent.StartOffset -ne $args[0].Parent.Extent.StartOffset
-            }, $true)
-
-        if ($asts.Count -eq 0)
-        {
-            [Microsoft.PowerShell.PSConsoleReadLine]::Ding()
-            return
-        }
-
-        $nextAst = if ($null -ne $arg)
-        {
-            $asts[$arg - 1]
-        }
-        else
-        {
-            $found = $null
-            foreach ($astItem in $asts)
-            {
-                if ($astItem.Extent.StartOffset -ge $cursor)
-                {
-                    $found = $astItem
-                    break
-                }
-            }
-            if ($null -eq $found)
-            {
-                $asts[0]
-            }
-            else
-            {
-                $found
-            }
-        }
-
-        $startOffsetAdjustment = 0
-        $endOffsetAdjustment = 0
-        if ($nextAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
-            $nextAst.StringConstantType -ne [System.Management.Automation.Language.StringConstantType]::BareWord)
-        {
-            $startOffsetAdjustment = 1
-            $endOffsetAdjustment = 2
-        }
-
-        [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($nextAst.Extent.StartOffset + $startOffsetAdjustment)
-        [Microsoft.PowerShell.PSConsoleReadLine]::SetMark($null, $null)
-        [Microsoft.PowerShell.PSConsoleReadLine]::SelectForwardChar($null, ($nextAst.Extent.EndOffset - $nextAst.Extent.StartOffset) - $endOffsetAdjustment)
+    $startOffsetAdjustment = 0
+    $endOffsetAdjustment = 0
+    if ($nextAst -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+        $nextAst.StringConstantType -ne [System.Management.Automation.Language.StringConstantType]::BareWord)
+    {
+        $startOffsetAdjustment = 1
+        $endOffsetAdjustment = 2
     }
 
-    Set-PSReadLineKeyHandler -Chord 'Alt+x' `
-        -BriefDescription ToUnicodeChar `
-        -LongDescription "Transform Unicode code point into a UTF-16 encoded string" `
-        -ScriptBlock {
-        $buffer = $null; $cursor = 0
-        [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref] $buffer, [ref] $cursor)
-        if ($cursor -lt 4)
-        {
-            return
-        }
+    [Microsoft.PowerShell.PSConsoleReadLine]::SetCursorPosition($nextAst.Extent.StartOffset + $startOffsetAdjustment)
+    [Microsoft.PowerShell.PSConsoleReadLine]::SetMark($null, $null)
+    [Microsoft.PowerShell.PSConsoleReadLine]::SelectForwardChar($null, ($nextAst.Extent.EndOffset - $nextAst.Extent.StartOffset) - $endOffsetAdjustment)
+}
 
-        $number = 0
-        $isNumber = [int]::TryParse($buffer.Substring($cursor - 4, 4), [System.Globalization.NumberStyles]::AllowHexSpecifier, $null, [ref] $number)
-        if (-not $isNumber)
-        {
-            return
-        }
-
+Set-PSReadLineKeyHandler -Chord 'Alt+x' -BriefDescription ToUnicodeChar -LongDescription "Transform Unicode point" -ScriptBlock {
+    $buffer = $null; $cursor = 0
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref] $buffer, [ref] $cursor)
+    if ($cursor -lt 4)
+    {
+        return
+    }
+    $number = 0
+    if ([int]::TryParse($buffer.Substring($cursor - 4, 4), [System.Globalization.NumberStyles]::AllowHexSpecifier, $null, [ref] $number))
+    {
         try
         {
             $unicode = [char]::ConvertFromUtf32($number)
@@ -649,16 +654,11 @@ Start-ThreadJob `
     {
         @('code', 'nvim', 'vim', 'notepad++', 'notepad')
     }
-    elseif ($IsMacOS)
-    {
-        @('code', 'nvim', 'vim', 'nano')
-    }
     else
     {
         @('code', 'nvim', 'vim', 'nano')
     }
-
-    $EDITOR = 'nano'  # Safe default for all platforms
+    $EDITOR = 'nano'
     foreach ($editor in $editors)
     {
         if ($null -ne (Get-Command $editor -ErrorAction SilentlyContinue -CommandType Application))
@@ -667,8 +667,6 @@ Start-ThreadJob `
             break
         }
     }
-
-    # Export to the environment so external tools (git, gh, crontab, etc.) pick the same editor.
     $env:EDITOR = $EDITOR
     $env:VISUAL = $EDITOR
 
@@ -676,13 +674,10 @@ Start-ThreadJob `
     function Open-Item
     {
         param([string]$Path)
-
         if (-not (Test-Path $Path))
         {
-            Write-Error "Path not found: $Path"
-            return
+            Write-Error "Path not found: $Path"; return
         }
-
         if ($IsWindows)
         {
             Invoke-Item $Path
@@ -702,51 +697,32 @@ Start-ThreadJob `
     {
         & $EDITOR $PROFILE
     }
-
     function Sync-Profile
     {
         try
         {
-            . $PROFILE
-            Write-Output 'Profile reloaded successfully.'
+            . $PROFILE; Write-Output 'Profile reloaded successfully.'
         }
         catch
         {
             Write-Error $_
         }
     }
-
     function Get-GitWhoami
     {
         if (Get-Command git -ErrorAction SilentlyContinue)
         {
-            [PSCustomObject]@{
-                Author = (git config --get user.name)
-                Email  = (git config --get user.email)
-            }
+            [PSCustomObject]@{ Author = (git config --get user.name); Email = (git config --get user.email) }
         }
     }
-
-    function gcom
-    {
-        param([string]$Message)
-        if (Get-Command git -ErrorAction SilentlyContinue)
+    function gcom param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
         {
-            git add .
-            git commit -m $Message
-        }
-    }
-
-    function lazyg
-    {
-        param([string]$Message)
-        if (Get-Command git -ErrorAction SilentlyContinue)
+            git add .; git commit -m $Message
+        } }
+    function lazyg param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
         {
-            git add .
-            git commit -m $Message
-            git push
-        }
-    }
+            git add .; git commit -m $Message; git push
+        } }
 
     Set-Alias open Open-Item
     Set-Alias edit $EDITOR
@@ -759,23 +735,19 @@ Start-ThreadJob `
     {
         Get-ChildItem @args | Format-Table -AutoSize
     }
-
     function la
     {
-        Get-ChildItem -Name @args -Force
+        Get-ChildItem -Name @args
     }
-
     function lh
     {
         Get-ChildItem @args | Format-Wide -AutoSize
     }
-
     function lv
     {
         Get-ChildItem @args | Format-List
     }
-
     function lb
     {
-        Get-ChildItem @args -Force | Out-Host
+        Get-ChildItem @args | Out-Host
     }
