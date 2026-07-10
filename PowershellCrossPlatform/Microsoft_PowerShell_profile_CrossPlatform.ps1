@@ -290,7 +290,7 @@ Start-ThreadJob `
     {
     }
 } | Out-Null
-}
+
 else
 {
     try
@@ -391,7 +391,6 @@ catch
     catch
     {
     }
-}
 }
 
 # --- PSReadLine Key Handlers ---
@@ -603,151 +602,156 @@ Set-PSReadLineKeyHandler -Chord 'Alt+x' -BriefDescription ToUnicodeChar -LongDes
         [Microsoft.PowerShell.PSConsoleReadLine]::Delete($cursor - 4, 4)
         [Microsoft.PowerShell.PSConsoleReadLine]::Insert($unicode)
     }
+}
+Set-PSReadLineKeyHandler -Chord Shift+Enter -Function AddLine
+Set-PSReadLineKeyHandler -Chord Ctrl+f -Function ForwardWord
+Set-PSReadLineKeyHandler -Chord Enter -Function AcceptLine
 
-    Set-PSReadLineKeyHandler -Chord Shift+Enter -Function AddLine
-    Set-PSReadLineKeyHandler -Chord Ctrl+f -Function ForwardWord
-    Set-PSReadLineKeyHandler -Chord Enter -Function AcceptLine
-
-    # --- Argument Completers ---
-    Register-ArgumentCompleter -Native -CommandName 'git', 'npm', 'deno' -ScriptBlock {
-        param($wordToComplete, $commandAst, $cursorPosition)
-        $completions = @{
-            'git'  = @('status', 'add', 'commit', 'push', 'pull', 'clone', 'diff', 'log', 'checkout')
-            'npm'  = @('install', 'start', 'run', 'test', 'build')
-            'deno' = @('run', 'compile', 'bundle', 'test', 'lint', 'fmt', 'cache', 'doc', 'upgrade')
-        }
-        $command = $commandAst.CommandElements[0].Value.ToLower()
-        if ($completions.ContainsKey($command))
-        {
-            $completions[$command] | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                [CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
+# --- Argument Completers ---
+Register-ArgumentCompleter -Native -CommandName 'git', 'npm', 'deno' -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    $completions = @{
+        'git'  = @('status', 'add', 'commit', 'push', 'pull', 'clone', 'diff', 'log', 'checkout')
+        'npm'  = @('install', 'start', 'run', 'test', 'build')
+        'deno' = @('run', 'compile', 'bundle', 'test', 'lint', 'fmt', 'cache', 'doc', 'upgrade')
+    }
+    $command = $commandAst.CommandElements[0].Value.ToLower()
+    if ($completions.ContainsKey($command))
+    {
+        $completions[$command] | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+            [CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     }
+}
 
-    Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock {
-        param($wordToComplete, $commandAst, $cursorPosition)
-        if (Get-Command dotnet -ErrorAction SilentlyContinue)
-        {
-            dotnet Complete --position $cursorPosition $commandAst.ToString() | ForEach-Object {
-                [CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
+Register-ArgumentCompleter -Native -CommandName dotnet -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+    if (Get-Command dotnet -ErrorAction SilentlyContinue)
+    {
+        dotnet Complete --position $cursorPosition $commandAst.ToString() | ForEach-Object {
+            [CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
     }
+}
 
-    # Windows-only completer
+# Windows-only completer
+if ($IsWindows)
+{
+    Register-ArgumentCompleter -Native -CommandName winget -ScriptBlock {
+        param($wordToComplete, $commandAst, $cursorPosition)
+        [Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8
+        $Local:word = $wordToComplete.Replace('"', '""')
+        $Local:ast = $commandAst.ToString().Replace('"', '""')
+        winget complete --word="$Local:word" --commandline "$Local:ast" --position $cursorPosition | ForEach-Object {
+            [CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        }
+    }
+}
+
+# --- Dynamic Editor Logic ---
+$editors = if ($IsWindows)
+{
+    @('code', 'nvim', 'vim', 'notepad++', 'notepad')
+}
+else
+{
+    @('code', 'nvim', 'vim', 'nano')
+}
+$EDITOR = 'nano'
+foreach ($editor in $editors)
+{
+    if ($null -ne (Get-Command $editor -ErrorAction SilentlyContinue -CommandType Application))
+    {
+        $EDITOR = $editor
+        break
+    }
+}
+$env:EDITOR = $EDITOR
+$env:VISUAL = $EDITOR
+
+# --- Cross-Platform Open Function ---
+function Open-Item
+{
+    param([string]$Path)
+    if (-not (Test-Path $Path))
+    {
+        Write-Error "Path not found: $Path"; return
+    }
     if ($IsWindows)
     {
-        Register-ArgumentCompleter -Native -CommandName winget -ScriptBlock {
-            param($wordToComplete, $commandAst, $cursorPosition)
-            [Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [System.Text.Encoding]::UTF8
-            $Local:word = $wordToComplete.Replace('"', '""')
-            $Local:ast = $commandAst.ToString().Replace('"', '""')
-            winget complete --word="$Local:word" --commandline "$Local:ast" --position $cursorPosition | ForEach-Object {
-                [CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
-        }
+        Invoke-Item $Path
     }
-
-    # --- Dynamic Editor Logic ---
-    $editors = if ($IsWindows)
+    elseif ($IsMacOS)
     {
-        @('code', 'nvim', 'vim', 'notepad++', 'notepad')
+        open $Path
     }
     else
     {
-        @('code', 'nvim', 'vim', 'nano')
+        xdg-open $Path 2>/dev/null || Write-Host "Cannot open path. Please open manually."
     }
-    $EDITOR = 'nano'
-    foreach ($editor in $editors)
-    {
-        if ($null -ne (Get-Command $editor -ErrorAction SilentlyContinue -CommandType Application))
-        {
-            $EDITOR = $editor
-            break
-        }
-    }
-    $env:EDITOR = $EDITOR
-    $env:VISUAL = $EDITOR
+}
 
-    # --- Cross-Platform Open Function ---
-    function Open-Item
+# --- Clean Aliases & Git Utilities ---
+function Edit-Profile
+{
+    & $EDITOR $PROFILE
+}
+function Sync-Profile
+{
+    try
     {
-        param([string]$Path)
-        if (-not (Test-Path $Path))
-        {
-            Write-Error "Path not found: $Path"; return
-        }
-        if ($IsWindows)
-        {
-            Invoke-Item $Path
-        }
-        elseif ($IsMacOS)
-        {
-            open $Path
-        }
-        else
-        {
-            xdg-open $Path 2>/dev/null || Write-Host "Cannot open path. Please open manually."
-        }
+        . $PROFILE; Write-Output 'Profile reloaded successfully.'
     }
-
-    # --- Clean Aliases & Git Utilities ---
-    function Edit-Profile
+    catch
     {
-        & $EDITOR $PROFILE
+        Write-Error $_
     }
-    function Sync-Profile
+}
+function Get-GitWhoami
+{
+    if (Get-Command git -ErrorAction SilentlyContinue)
     {
-        try
-        {
-            . $PROFILE; Write-Output 'Profile reloaded successfully.'
-        }
-        catch
-        {
-            Write-Error $_
-        }
+        [PSCustomObject]@{ Author = (git config --get user.name); Email = (git config --get user.email) }
     }
-    function Get-GitWhoami
-    {
-        if (Get-Command git -ErrorAction SilentlyContinue)
-        {
-            [PSCustomObject]@{ Author = (git config --get user.name); Email = (git config --get user.email) }
-        }
-    }
-    function gcom param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
+}
+function gcom
+{
+    param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
         {
             git add .; git commit -m $Message
         } }
-    function lazyg param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
+}
+function lazyg
+{
+    param([string]$Message) { if (Get-Command git -ErrorAction SilentlyContinue)
         {
             git add .; git commit -m $Message; git push
         } }
+}
+Set-Alias open Open-Item
+Set-Alias edit $EDITOR
+Set-Alias ep Edit-Profile
+Set-Alias reload Sync-Profile
+Set-Alias GWhoami Get-GitWhoami
 
-    Set-Alias open Open-Item
-    Set-Alias edit $EDITOR
-    Set-Alias ep Edit-Profile
-    Set-Alias reload Sync-Profile
-    Set-Alias GWhoami Get-GitWhoami
-
-    # --- Directory Listing Functions ---
-    function ll
-    {
-        Get-ChildItem @args | Format-Table -AutoSize
-    }
-    function la
-    {
-        Get-ChildItem -Name @args
-    }
-    function lh
-    {
-        Get-ChildItem @args | Format-Wide -AutoSize
-    }
-    function lv
-    {
-        Get-ChildItem @args | Format-List
-    }
-    function lb
-    {
-        Get-ChildItem @args | Out-Host
-    }
+# --- Directory Listing Functions ---
+function ll
+{
+    Get-ChildItem @args | Format-Table -AutoSize
+}
+function la
+{
+    Get-ChildItem -Name @args
+}
+function lh
+{
+    Get-ChildItem @args | Format-Wide -AutoSize
+}
+function lv
+{
+    Get-ChildItem @args | Format-List
+}
+function lb
+{
+    Get-ChildItem @args | Out-Host
+}
